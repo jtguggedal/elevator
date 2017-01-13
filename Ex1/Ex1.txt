@@ -1,4 +1,3 @@
-** Task 3:
 
 Concurrency
 	Concurrency means that a part of a program, a thread, can run independent of other part of a process that is running.
@@ -43,6 +42,6 @@ What does func GOMAXPROCS(n int) int change?:
 	
 	
 	
-** Task 4
-	When we run the code we see that the result is "never" 0, it's some number between -1 000 000 and 1 000 000.
+
+When we run the code we see that the result is "never" 0, it's some number between -1 000 000 and 1 000 000.
 	This is because there's no control over the concurrency. 

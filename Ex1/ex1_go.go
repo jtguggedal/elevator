@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"time"
 )
 
@@ -21,11 +20,10 @@ func dec(){
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	go inc()
 	go dec()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	fmt.Printf("Result: %d\n", i)
 }
