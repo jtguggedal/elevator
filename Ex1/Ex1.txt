@@ -1,0 +1,48 @@
+** Task 3:
+
+Concurrency
+	Concurrency means that a part of a program, a thread, can run independent of other part of a process that is running.
+	Often implemented using threads running on a single core machine, and is therefore not "truely" parallel,
+	but acts as if it is.
+	
+Parallelism
+	Parallelism is when processes runs in true parallel, utilising multiple processor cores.
+	 
+
+Why are multicore machines becoming more popular?
+	Because of ability for parallelism and increased efficiency when executing processes on independent processors.
+	
+What kinds of problems motivates the need for concurrent execution? (Or phrased differently: What problems do concurrency help in solving?)
+	Problems where one needs to run multiple processes at the same time. For example keeping communication with multiple clients.
+
+Does creating concurrent programs make the programmer's life easier? Harder? Maybe both? (Come back to this after you have worked on part 4 of this exercise)
+	More complicated implementation, but problems may require concurrency two work properly. So, a bit of both.
+
+What are the differences between processes, threads, green threads, and coroutines?
+	Process: the execution of a program
+	Thread: a sequence of instructions that can be executed independently by a scheduler and of other threads
+	Green thread: threads that are scheduled by VM or runtime library and not OS
+	Coroutine: differs from threads in that only one coroutine runs at the same time
+
+Which one of these do pthread_create() (C/POSIX), threading.Thread() (Python), go (Go) create?
+	phthread_create(): thread
+	threading.Thread(): thread
+	go: spawns a goroutine, which is partly thread and partly coroutine, called a "lightweight" thread.
+	
+How does pythons Global Interpreter Lock (GIL) influence the way a python Thread behaves?
+	The GIL makes sure that only one thread has access to the interpreter at the same time.
+	 
+
+With this in mind: What is the workaround for the GIL (Hint: it's another module)?
+	One can use multiprocessing as a workaround, utilizing an extra process to run additional interpreter when GIL has it locked down
+
+
+What does func GOMAXPROCS(n int) int change?:
+	GOMAXPROCS limits the number of operating system threads that can execute user-level Go code simultaneously.
+	
+	
+	
+	
+** Task 4
+	When we run the code we see that the result is "never" 0, it's some number between -1 000 000 and 1 000 000.
+	This is because there's no control over the concurrency. 
