@@ -1,4 +1,4 @@
-// gcc -std=gnu99 -Wall -g -o helloworld_c helloworld_c.c -lpthread
+// gcc -std=gnu99 -Wall -g -o ex2_c ex_2.c -lpthread
 
 #include <pthread.h>
 #include <semaphore.h>
@@ -59,7 +59,7 @@ int main(){
 
     #if USE_SEMAPHORE
         sem_unlink("key");
-        key = sem_open("key", O_CREAT, NULL, 1);;
+        sem_init(&key, 0, 1);;
 
         pthread_create(&thread_inc, NULL, inc, NULL);
         pthread_create(&thread_dec, NULL, dec, NULL);
