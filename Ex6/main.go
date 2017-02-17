@@ -69,7 +69,11 @@ func broadcastServer(outputChannel chan UDPmessage) {
 func startBackup() {
 	expression := fmt.Sprintf("go run main.go -backup -portOffset=%d", portOffset)
 	cmd := exec.Command("gnome-terminal", "-x", "sh", "-c", expression)
-	//cmd := exec.Command("osascript -e 'tell app "Terminal" to do script ["terminal command"]")
+
+    //dir, _ := os.Getwd()
+    //expression := fmt.Sprintf("tell application \"Terminal\" to do script \"cd %s; go run main.go -backup -portOffset=%d\"", dir, portOffset)
+	//cmd := exec.Command("osascript", "-e", expression)
+
 	cmd.Run()
 }
 
