@@ -1,0 +1,41 @@
+//Each elevator must have own queue which is shared with all elevators. 
+//If order is the same direction as elevator direction and OrderFloor > currentOrderFloor, order -> elevator queue (LIFO)
+//If elevator direction is 0 (elevator standing still)  
+
+//An order must have states: Floor, Up/Down
+
+//ElevatorCosts: 
+
+//Floor deviation = [0.Floors 1.floor 2.floors 3.floors;0 1 2 3];
+//Elevator direction and the floor number the order is requested from = [same standstill opposite;1 0 2];
+//Elevator direction and the direction of the order (up/down) = [Same opposite;0 1];
+
+func CostCalculation(elevator states int and OrderStates int){
+		FloorDeviationCost = StateElevatorFloor - OrderRequestFloor
+		ElevatorDirection = StateElevatorDirection
+		OrderDirection = OrderRequestDirection
+		
+		if(ElevatorDirection == standstill){
+			ElevatorDirectionCost = 0;
+			}
+		if(ElevatorDirection == same){
+			ElevatorDirectionCost = 1
+			}
+		if(ElevatorDirection ==	opposite){
+			ElevatorDirectionCost = 2
+			
+		if(ElevatorDirection == OrderDirection){
+			OrderDirectionCost = 0
+			}
+		if(ElevatorDirection != OrderDirection)
+			OrderDirectionCost = 10
+			}
+		
+		
+		TotalElevatorCost = FloorDeviationCost + ElevatorDirectionCost + OrderDirectionCost
+		return TotalElevatorCost
+	}
+
+func OrderCalculation(need TotalElevatorCost of all elevators int){
+	COST FUNCTION that calculates which elevator that should answer to the order request.
+}

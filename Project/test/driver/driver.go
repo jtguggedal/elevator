@@ -36,20 +36,22 @@ type ButtonEvent struct {
 
 // Function for polling buttons. Returns struct with button type, floor and button state when button is pressed
 func ButtonPoll(ret chan ButtonEvent) {
-	for {
-		for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
-			for button := 0; button < NUMBER_OF_BUTTONS; button++ {
-				if GetButtonSignal(button, floor) != 0 {
-					ret <- ButtonEvent{Floor: floor, Button: button, Status: GetButtonSignal(button, floor)}
-					time.Sleep(100 * time.Millisecond)
+	go func() {
+		for {
+			for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
+				for button := 0; button < NUMBER_OF_BUTTONS; button++ {
+					if GetButtonSignal(button, floor) != 0 {
+						ret <- ButtonEvent{Floor: floor, Button: button, Status: GetButtonSignal(button, floor)}
+						time.Sleep(100 * time.Millisecond)
+					}
 				}
 			}
 		}
-	}
+	}()
 }
 
 func ElevatorDriverInit() {
-	C.elev_init()
+	C.elev_init(C.ET_Simulation)
 }
 
 func SetMotorDirection(direction MotorDirection) {

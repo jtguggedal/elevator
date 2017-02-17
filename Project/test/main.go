@@ -4,8 +4,7 @@ import (
 	"./driver"
 	"fmt"
 	//"time"
-	"./network"
-	fsm "./state_machine"
+	"./state_machine"
 )
 
 func main() {
@@ -14,23 +13,18 @@ func main() {
 	currentFloor := 0
 	nextFloor := 0
 
-	// Create necessary channels
-	buttonEventChannel := make(chan driver.ButtonEvent)
-	floorEventChannel := make(chan int)
+	buttonEventChan := make(chan driver.ButtonEvent)
+	floorEventChan := make(chan int)
 
-	// Initialize elevator driver
 	driver.ElevatorDriverInit()
+	state_machine.FloorMonitor(floorEventChan)
 
-	// Start monitoring when elevator reaches a floor
-	fsm.FloorMonitor(floorEventChannel)
-
-	// Start button polling (all buttons)
-	go driver.ButtonPoll(buttonEventChannel)
+	driver.ButtonPoll(buttonEventChan)
 
 	go func() {
 		for {
 			select {
-			case buttonEvent := <-buttonEventChannel:
+			case buttonEvent := <-buttonEventChan:
 				nextFloor = buttonEvent.Floor
 				fmt.Println("Next order: ", buttonEvent.Floor)
 				if nextFloor < currentFloor {
@@ -38,7 +32,7 @@ func main() {
 				} else if nextFloor > currentFloor {
 					driver.SetMotorDirection(driver.MOTOR_DIRECTION_UP)
 				}
-			case floor := <-floorEventChannel:
+			case floor := <-floorEventChan:
 				currentFloor = floor
 				if currentFloor == nextFloor {
 					driver.SetMotorDirection(driver.MOTOR_DIRECTION_STOP)
@@ -48,7 +42,6 @@ func main() {
 		}
 	}()
 
-	network.Init()
 	go func() {
 		var prevFloor int
 		var currentFloor int

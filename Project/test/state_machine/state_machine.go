@@ -2,10 +2,9 @@ package state_machine
 
 import (
 	"./../driver"
-	"fmt"
 )
 
-type Direction int
+type FsmDirection int
 
 const (
 	DIRECTION_STOP = 0
@@ -13,23 +12,10 @@ const (
 	DIRECTION_DOWN = -1
 )
 
-type State struct {
+type StateMsg struct {
 	Id        string
-	Direction Direction
+	Direction FsmDirection
 	Floor     int
-}
-
-type StateMsg State
-
-func Init(stateRx chan StateMsg, states []State) {
-	go func() {
-		for {
-			select {
-			case receivedState := <-stateRx:
-				StateChange(states, receivedState)
-			}
-		}
-	}()
 }
 
 func FloorMonitor(channel chan int) {
@@ -48,14 +34,4 @@ func FloorMonitor(channel chan int) {
 			}
 		}
 	}()
-}
-
-func StateChange(states []State, receivedState StateMsg) {
-	for i, element := range states {
-		if element.Id == receivedState.Id {
-			states[i].Direction = receivedState.Direction
-			states[i].Floor = receivedState.Floor
-		}
-	}
-	fmt.Printf("States: %#v\n", states)
 }

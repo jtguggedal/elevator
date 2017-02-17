@@ -1,14 +1,15 @@
 package main
 
 import (
+	fsm "./../state_machine"
 	"./network/bcast"
 	"./network/localip"
 	"./network/peers"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"time"
-	"net"
 )
 
 // We define some custom struct to send over the network.
@@ -20,9 +21,6 @@ type HelloMsg struct {
 }
 
 func main() {
-
-
-
 
 	// Our id can be anything. Here we pass it on the command line, using
 	//  `go run main.go -id=our_id`
@@ -53,24 +51,22 @@ func main() {
 	go peers.Receiver(30003, peerUpdateCh)
 
 	// We make channels for sending and receiving our custom data types
-	helloTx := make(chan HelloMsg)
-	helloRx := make(chan HelloMsg)
+	stateTx := make(chan fsm.StateMsg)
+	stateRx := make(chan fsm.StateMsg)
 	// ... and start the transmitter/receiver pair on some port
 	// These functions can take any number of channels! It is also possible to
 	//  start multiple transmitters/receivers on the same port.
-	go bcast.Transmitter(31003, helloTx)
-	go bcast.Receiver(31003, helloRx)
+	go bcast.Transmitter(31003, stateTx)
+	go bcast.Receiver(31003, stateRx)
 
 	// The example message. We just send one of these every second.
-	/*go func() {
-		helloMsg := HelloMsg{"Hello from " + id, 0}
+	go func() {
+		stateMsg := fsm.StateMsg{Id: id, Direction: fsm.DIRECTION_UP, Floor: 1}
 		for {
-			helloMsg.Iter++
-			helloTx <- helloMsg
+			stateTx <- stateMsg
 			time.Sleep(1 * time.Second)
 		}
-	}()*/
-
+	}()
 
 	timerChan := make(chan peers.PeerUpdate)
 	startChan := make(chan bool)
@@ -95,18 +91,18 @@ func main() {
 				fmt.Printf("  Lost:\t\t%q\n", p.Lost)
 			}
 			fmt.Printf("  Connected:\t%q\n\n", connectedPeers.Peers)
-			if len(p.Lost) > 0  && false {
+			if len(p.Lost) > 0 && false {
 				fmt.Println("LOST A NODE :((")
 				fmt.Println("Attempting TCP connection...")
-			    conn, _ := net.Dial("tcp", "192.168.1.8:8081")
-			    fmt.Fprintf(conn, "tjäna grabben\n")
+				conn, _ := net.Dial("tcp", "192.168.1.8:8081")
+				fmt.Fprintf(conn, "tjäna grabben\n")
 			}
 		case done := <-timerChan:
 			fmt.Printf("Connected nodes:    %q\n", done.Peers)
 			//startChan <- true
-		//case a := <-helloRx:
-		//	fmt.Printf("Received: %#v\n", a)
-		case start := <- startChan:
+		case a := <-stateRx:
+			fmt.Printf("Received: %#v\n", a)
+		case start := <-startChan:
 			if start == true {
 				fmt.Println("Elevators started. Have a nice day.")
 			}

@@ -1,17 +1,15 @@
 package main
 
 import (
-    "fmt"
+	"fmt"
 	"net"
 	//"os"
+	"flag"
+	"log"
 	"os/exec"
 	"strconv"
 	"time"
-    "flag"
-    "log"
 )
-
-
 
 var masterFlag bool
 var portOffset int = 0
@@ -24,14 +22,12 @@ type UDPmessage struct {
 	Data string
 }
 
-
 func listenUDP(listenChannel chan Counter) {
 	port := fmt.Sprintf(":3333%d", portOffset)
-    listenAddr, err := net.ResolveUDPAddr("udp", port)
-    if err != nil {
+	listenAddr, err := net.ResolveUDPAddr("udp", port)
+	if err != nil {
 		log.Fatal(err)
 	}
-
 
 	conn, err := net.ListenUDP("udp", listenAddr)
 	if err != nil {
@@ -39,7 +35,7 @@ func listenUDP(listenChannel chan Counter) {
 	}
 
 	for {
-		if masterFlag  {
+		if masterFlag {
 			conn.Close()
 			break
 		}
@@ -51,15 +47,13 @@ func listenUDP(listenChannel chan Counter) {
 
 		listenChannel <- counter
 	}
-    // No error handling for now
+	// No error handling for now
 }
 
-	
 func broadcastServer(outputChannel chan UDPmessage) {
 
 	// Setting up ports. Note, no error handling implemented
 	listenAddr, _ := net.ResolveUDPAddr("udp", ":30031")
-
 
 	addr := fmt.Sprintf("255.255.255.255:3333%d", portOffset)
 	broadcastAddr, _ := net.ResolveUDPAddr("udp", addr)
@@ -67,57 +61,51 @@ func broadcastServer(outputChannel chan UDPmessage) {
 	conn, _ := net.ListenUDP("udp", listenAddr)
 
 	for {
-		msg := <- outputChannel
+		msg := <-outputChannel
 		conn.WriteToUDP([]byte(msg.Data), broadcastAddr)
 	}
 }
 
-
-
 func startBackup() {
 	expression := fmt.Sprintf("go run main.go -backup -portOffset=%d", portOffset)
 	cmd := exec.Command("gnome-terminal", "-x", "sh", "-c", expression)
-    //cmd := exec.Command("osascript -e 'tell app "Terminal" to do script ["terminal command"]")
+	//cmd := exec.Command("osascript -e 'tell app "Terminal" to do script ["terminal command"]")
 	cmd.Run()
 }
 
 func becomeMaster(outputChannel chan UDPmessage) {
 	masterFlag = true
-    startBackup()
+	startBackup()
 	go broadcastServer(outputChannel)
 
-    fmt.Println("I'm master")
+	fmt.Println("I'm master")
 }
 
 func becomeBackup(listenChannel chan Counter, receivedPortOffset int) {
 	masterFlag = false
 	portOffset = receivedPortOffset
 	go listenUDP(listenChannel)
-    fmt.Println("I'm backup")
+	fmt.Println("I'm backup")
 }
-
 
 func main() {
 	var backupFlag = flag.Bool("backup", false, "Is backup")
 	var receivedPortOffset = flag.Int("portOffset", 0, "Port offset")
 	flag.Parse()
 
-    outputChannel := make(chan UDPmessage)
+	outputChannel := make(chan UDPmessage)
 
-    listenChannel := make(chan Counter)
-
+	listenChannel := make(chan Counter)
 
 	// Checking if master or backup
-    if !*backupFlag {
-    	becomeMaster(outputChannel)
-    } else {
-    	becomeBackup(listenChannel, *receivedPortOffset)
-    }
-
+	if !*backupFlag {
+		becomeMaster(outputChannel)
+	} else {
+		becomeBackup(listenChannel, *receivedPortOffset)
+	}
 
 	counter := Counter{0}
 
-	
 	for {
 		if masterFlag {
 			fmt.Printf("Count: %d\n", counter.Count)
@@ -128,19 +116,15 @@ func main() {
 			time.Sleep(1 * time.Second)
 		} else {
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(10 * time.Second):
 				fmt.Println("Timer has time out - becoming master...")
-   			 	portOffset++
-   			 	counter.Count++
+				portOffset++
+				counter.Count++
 				becomeMaster(outputChannel)
-			case msg := <- listenChannel:
+			case msg := <-listenChannel:
 				counter.Count = msg.Count
-				fmt.Printf("Received count: %d\n", counter.Count)
+				//fmt.Printf("Received count: %d\n", counter.Count)
 			}
 		}
-
-
-
 	}
-
 }
