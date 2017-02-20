@@ -6,6 +6,8 @@ package driver
 #include "elev.h"
 */
 import "C"
+
+//import "fmt"
 import "time"
 
 type MotorDirection int
@@ -34,22 +36,46 @@ type ButtonEvent struct {
 	Status int
 }
 
+func ElevatorDriverInit() {
+	C.elev_init()
+
+	SetStopLamp(1)
+	SetDoorOpenLamp(1)
+	SetMotorDirection(MOTOR_DIRECTION_DOWN)
+
+	for GetFloorSensorSignal() == -1 {
+		// Wait for elevator to get down to closest floor and thereby known state
+	}
+	SetMotorDirection(MOTOR_DIRECTION_STOP)
+}
+
 // Function for polling buttons. Returns struct with button type, floor and button state when button is pressed
-func ButtonPoll(ret chan ButtonEvent) {
+func EventListener(buttonEventChannel chan ButtonEvent, floorEventChannel chan int) {
+	var prevFloor int
+	var currentFloorSignal int
 	for {
+		currentFloorSignal = GetFloorSensorSignal()
+		if currentFloorSignal != prevFloor && currentFloorSignal >= 0 {
+			//driver.SetFloorIndicator(driver.GetFloorSensorSignal())
+			floorEventChannel <- currentFloorSignal
+			prevFloor = currentFloorSignal
+		}
+		if currentFloorSignal == -1 {
+			// Elevator between two floors
+		}
 		for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
 			for button := 0; button < NUMBER_OF_BUTTONS; button++ {
 				if GetButtonSignal(button, floor) != 0 {
-					ret <- ButtonEvent{Floor: floor, Button: button, Status: GetButtonSignal(button, floor)}
-					time.Sleep(100 * time.Millisecond)
+					buttonEventChannel <- ButtonEvent{
+						Floor:  floor,
+						Button: button,
+						Status: GetButtonSignal(button, floor)}
+					time.Sleep(500 * time.Millisecond)
 				}
+
 			}
 		}
 	}
-}
-
-func ElevatorDriverInit() {
-	C.elev_init()
 }
 
 func SetMotorDirection(direction MotorDirection) {

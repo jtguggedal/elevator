@@ -21,41 +21,45 @@ type State struct {
 
 type StateMsg State
 
-func Init(stateRx chan StateMsg, states []State) {
-	go func() {
-		for {
-			select {
-			case receivedState := <-stateRx:
-				StateChange(states, receivedState)
-			}
+func Init(stateRx, stateTx chan StateMsg /*, states []State*/) {
+	go FloorMonitor(stateRx)
+	go StateMonitor(stateRx)
+	for {
+		select {
+		case receivedState := <-stateRx:
+			//var states []State
+			//states = append(states, State(receivedState))
+			//StateChange(states, receivedState)
+			fmt.Println(receivedState)
 		}
-	}()
+	}
 }
 
-func FloorMonitor(channel chan int) {
+func FloorMonitor(channel chan StateMsg) {
 	var prevFloor int
 	var currentFloor int
-	go func() {
-		for {
-			currentFloor = driver.GetFloorSensorSignal()
+	for {
+		select {
+		case a := <-channel:
+			currentFloor = a.Floor
 			if currentFloor != prevFloor && currentFloor >= 0 {
 				driver.SetFloorIndicator(driver.GetFloorSensorSignal())
-				channel <- currentFloor
 				prevFloor = currentFloor
 			}
 			if currentFloor == -1 {
 				// Elevator between two floors
 			}
 		}
-	}()
+	}
 }
 
-func StateChange(states []State, receivedState StateMsg) {
+func StateMonitor(receivedState StateMsg) {
+	var states []State
 	for i, element := range states {
 		if element.Id == receivedState.Id {
 			states[i].Direction = receivedState.Direction
 			states[i].Floor = receivedState.Floor
 		}
 	}
-	fmt.Printf("States: %#v\n", states)
+	//fmt.Printf("States: %#v\n", states)
 }

@@ -5,11 +5,16 @@ import (
 	"./network/bcast"
 	"./network/localip"
 	"./network/peers"
-	"flag"
+	//"flag"
 	"fmt"
 	//"net"
 	"os"
 	"time"
+)
+
+const (
+	peerPort  = 32003
+	bcastPort = 33003
 )
 
 // We define some custom struct to send over the network.
@@ -20,20 +25,51 @@ type HelloMsg struct {
 	Iter    int
 }
 
-func Init() {
+type UDPmessage struct {
+	Address int
+	Data    []byte
+	Length  int
+}
 
-	// Our id can be anything. Here we pass it on the command line, using
-	//  `go run main.go -id=our_id`
+/*
+func UDPinit(txChannel, rxChannel chan UDPmessage) {
+
 	var id string
 	var connectedPeers peers.PeerUpdate
 	flag.StringVar(&id, "id", "", "id of this peer")
 	flag.Parse()
 
-	states := make([]fsm.State, 0)
+	// We make a channel for receiving updates on the id's of the peers that are
+	//  alive on the network
+	peerUpdateCh := make(chan peers.PeerUpdate)
 
-	// ... or alternatively, we can use the local IP address.
-	// (But since we can run multiple programs on the same PC, we also append the
-	//  process ID)
+	// We can disable/enable the transmitter after it has been started.
+	// This could be used to signal that we are somehow "unavailable".
+	peerTxEnable := make(chan bool)
+	go peers.Transmitter(peerPort, id, peerTxEnable)
+	go peers.Receiver(peerPort, peerUpdateCh)
+
+	// We make channels for sending and receiving our custom data types
+	stateTx := make(chan fsm.StateMsg)
+	stateRx := make(chan fsm.StateMsg)
+
+	// ... and start the transmitter/receiver pair on some port
+	// These functions can take any number of channels! It is also possible to
+	//  start multiple transmitters/receivers on the same port.
+	go bcast.Transmitter(bcastPort, stateTx)
+	go bcast.Receiver(bcastPort, stateRx)
+
+}*/
+
+func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
+
+	// Our id can be anything. Here we pass it on the command line, using
+	//  `go run main.go -id=our_id`
+	//var id string
+	var connectedPeers peers.PeerUpdate
+	/*flag.StringVar(&id, "id", "", "id of this peer")
+	flag.Parse()*/
+
 	if id == "" {
 		localIP, err := localip.LocalIP()
 		if err != nil {
@@ -43,47 +79,48 @@ func Init() {
 		id = fmt.Sprintf("peer-%s-%d", localIP, os.Getpid())
 	}
 
+	states := make([]fsm.State, 0)
+
 	// We make a channel for receiving updates on the id's of the peers that are
 	//  alive on the network
 	peerUpdateCh := make(chan peers.PeerUpdate)
+
 	// We can disable/enable the transmitter after it has been started.
 	// This could be used to signal that we are somehow "unavailable".
 	peerTxEnable := make(chan bool)
-	go peers.Transmitter(30003, id, peerTxEnable)
-	go peers.Receiver(30003, peerUpdateCh)
+	go peers.Transmitter(peerPort, id, peerTxEnable)
+	go peers.Receiver(peerPort, peerUpdateCh)
 
 	// We make channels for sending and receiving our custom data types
-	stateTx := make(chan fsm.StateMsg)
-	stateRx := make(chan fsm.StateMsg)
 	// ... and start the transmitter/receiver pair on some port
 	// These functions can take any number of channels! It is also possible to
 	//  start multiple transmitters/receivers on the same port.
-	go bcast.Transmitter(31003, stateTx)
-	go bcast.Receiver(31003, stateRx)
+	go bcast.Transmitter(bcastPort, stateTxChannel)
+	go bcast.Receiver(bcastPort, stateRxChannel)
 
 	// The example message. We just send one of these every second.
-	go func() {
+	/*go func() {
 		stateMsg := fsm.StateMsg{Id: id, Direction: fsm.DIRECTION_UP, Floor: 1}
 		for {
 			stateTx <- stateMsg
 			time.Sleep(1 * time.Second)
 		}
-	}()
+	}()*/
 
 	timerChan := make(chan peers.PeerUpdate)
 	startChan := make(chan bool)
-	// Check after 10 seconds which nodes are online
-	go func() {
-		for {
-			time.Sleep(3 * time.Second)
-			//timerChan <- connectedPeers
-		}
-	}()
+	/*
+		// Check after 3 seconds which nodes are online
+		go func() {
+			for {
+				time.Sleep(3 * time.Second)
+				//timerChan <- connectedPeers
+			}
+		}()*/
 
 	// Init function for FSM
 	//fsm.Init(stateRx, states)
 
-	fmt.Println("Started")
 	for {
 		select {
 		case p := <-peerUpdateCh:
@@ -111,15 +148,16 @@ func Init() {
 		case done := <-timerChan:
 			fmt.Printf("Connected nodes:    %q\n", done.Peers)
 			//startChan <- true
-		case a := <-stateRx:
+		/*case a := <-stateRxChannel:
 
-			// Passing on state changed to handler function in fsm pacakge
-			fsm.StateChange(states, a)
-			fmt.Printf("States: %#v\n", states)
+		// Passing on state changed to handler function in fsm pacakge
+		fsm.StateChange(states, a)
+		//fmt.Printf("States: %#v\n", states)*/
 		case start := <-startChan:
 			if start == true {
 				fmt.Println("Elevators started. Have a nice day.")
 			}
 		}
 	}
+
 }
