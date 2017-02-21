@@ -14,9 +14,9 @@ type MotorDirection int
 type ButtonType int
 
 const (
-	MOTOR_DIRECTION_STOP = 0
-	MOTOR_DIRECTION_UP   = 1
-	MOTOR_DIRECTION_DOWN = -1
+	DirectionDown MotorDirection = -1
+	DirectionStop MotorDirection = 0
+	DriectionUp   MotorDirection= 1
 )
 
 const (
@@ -41,19 +41,25 @@ func ElevatorDriverInit() {
 
 	SetStopLamp(1)
 	SetDoorOpenLamp(1)
-	SetMotorDirection(MOTOR_DIRECTION_DOWN)
+	SetMotorDirection(DirectionDown)
 
 	for GetFloorSensorSignal() == -1 {
 		// Wait for elevator to get down to closest floor and thereby known state
 	}
-	SetMotorDirection(MOTOR_DIRECTION_STOP)
+	SetMotorDirection(DirectionStop)
 }
 
-// Function for polling buttons. Returns struct with button type, floor and button state when button is pressed
-func EventListener(buttonEventChannel chan ButtonEvent, floorEventChannel chan int) {
+// Function for enabling event listener for elevator and button events
+// TODO: call this from init function?
+func EventListener(
+		buttonEventChannel chan<- ButtonEvent,
+		floorEventChannel chan<- int) {
+
 	var prevFloor int
 	var currentFloorSignal int
 	for {
+
+		// Checking which floor the elevator is at
 		currentFloorSignal = GetFloorSensorSignal()
 		if currentFloorSignal != prevFloor && currentFloorSignal >= 0 {
 			//driver.SetFloorIndicator(driver.GetFloorSensorSignal())
@@ -62,7 +68,10 @@ func EventListener(buttonEventChannel chan ButtonEvent, floorEventChannel chan i
 		}
 		if currentFloorSignal == -1 {
 			// Elevator between two floors
+			// TODO: pass this on as well?
 		}
+
+		// Polling all buttons
 		for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
 			for button := 0; button < NUMBER_OF_BUTTONS; button++ {
 				if GetButtonSignal(button, floor) != 0 {

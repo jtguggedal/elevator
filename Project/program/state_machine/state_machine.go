@@ -5,21 +5,23 @@ import (
 	"fmt"
 )
 
-type Direction int
+type elevatorDirection driver.MotorDirection
+type elevatorState int
 
 const (
-	DIRECTION_STOP = 0
-	DIRECTION_UP   = 1
-	DIRECTION_DOWN = -1
+	idle elevatorState = iota
+	moving
+	doorOpen
 )
 
-type State struct {
-	Id        string
-	Direction Direction
-	Floor     int
+type ElevatorData struct {
+	Id        	string
+	Direction 	elevatorDirection
+	Floor     	int
+	State		elevatorState
 }
 
-type StateMsg State
+type StateMsg ElevatorData
 
 func Init(stateRx, stateTx chan StateMsg /*, states []State*/) {
 	go FloorMonitor(stateRx)
