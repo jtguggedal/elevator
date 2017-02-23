@@ -1,9 +1,11 @@
 package driver
 
 /*
-#cgo CFLAGS: -std=c11
+#cgo CFLAGS: -std=gnu11
 #cgo LDFLAGS: -lcomedi -lm
 #include "elev.h"
+#include "channels.h"
+#include "io.h"
 */
 import "C"
 
@@ -36,8 +38,13 @@ type ButtonEvent struct {
 	Status int
 }
 
-func ElevatorDriverInit() {
-	C.elev_init()
+func ElevatorDriverInit(simulator bool) {
+	if simulator {
+		C.elev_init(C.ET_Simulation)
+	} else {
+		C.elev_init(C.ET_Comedi)
+	}
+
 
 	SetStopLamp(1)
 	SetDoorOpenLamp(1)
@@ -55,22 +62,16 @@ func EventListener(
 		buttonEventChannel chan<- ButtonEvent,
 		floorEventChannel chan<- int) {
 
-	var prevFloor int
+	var prevFloorSignal int
 	var currentFloorSignal int
 	for {
 
-		// Checking which floor the elevator is at
+		// Passing on which floor the elevator is at if it has changed
 		currentFloorSignal = GetFloorSensorSignal()
-		if currentFloorSignal != prevFloor && currentFloorSignal >= 0 {
-			//driver.SetFloorIndicator(driver.GetFloorSensorSignal())
+		if currentFloorSignal != prevFloorSignal {
 			floorEventChannel <- currentFloorSignal
-			prevFloor = currentFloorSignal
+			prevFloorSignal = currentFloorSignal
 		}
-		if currentFloorSignal == -1 {
-			// Elevator between two floors
-			// TODO: pass this on as well?
-		}
-
 		// Polling all buttons
 		for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
 			for button := 0; button < NUMBER_OF_BUTTONS; button++ {

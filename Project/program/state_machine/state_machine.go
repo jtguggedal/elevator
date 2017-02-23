@@ -23,10 +23,13 @@ type ElevatorData struct {
 
 type StateMsg ElevatorData
 
-func Init(stateRx, stateTx chan StateMsg /*, states []State*/) {
-	go FloorMonitor(stateRx)
+func Init(	stateRx, stateTx chan StateMsg, 
+			buttonEventChannel chan driver.ButtonEvent, 
+			floorEventChannel chan int /*, states []State*/) {
+
+	go FloorMonitor(floorEventChannel)
 	go StateMonitor(stateRx)
-	for {
+	/*for {
 		select {
 		case receivedState := <-stateRx:
 			//var states []State
@@ -34,33 +37,38 @@ func Init(stateRx, stateTx chan StateMsg /*, states []State*/) {
 			//StateChange(states, receivedState)
 			fmt.Println(receivedState)
 		}
-	}
+	}*/
 }
 
-func FloorMonitor(channel chan StateMsg) {
-	var prevFloor int
-	var currentFloor int
+func FloorMonitor(channel chan int) {
+	var floorSignal int
 	for {
 		select {
-		case a := <-channel:
-			currentFloor = a.Floor
-			if currentFloor != prevFloor && currentFloor >= 0 {
-				driver.SetFloorIndicator(driver.GetFloorSensorSignal())
-				prevFloor = currentFloor
-			}
-			if currentFloor == -1 {
-				// Elevator between two floors
+		case floorSignal = <-channel:
+			if floorSignal >= 0 {
+				if(floorSignal >= driver.NUMBER_OF_FLOORS) {
+					driver.SetMotorDirection(driver.DirectionStop)
+				}
+				driver.SetFloorIndicator(floorSignal)
+				fmt.Println("Arrived at floor", floorSignal)
+			} else if floorSignal == -1 {
+				fmt.Println("Moving...")
 			}
 		}
 	}
 }
 
-func StateMonitor(receivedState StateMsg) {
-	var states []State
-	for i, element := range states {
-		if element.Id == receivedState.Id {
-			states[i].Direction = receivedState.Direction
-			states[i].Floor = receivedState.Floor
+func StateMonitor(stateChannel <-chan StateMsg) {
+	var states []ElevatorData
+	for {
+		select {
+		case receivedState := <- stateChannel:
+			for i, element := range states {
+				if element.Id == receivedState.Id {
+					states[i].Direction = receivedState.Direction
+					states[i].Floor = receivedState.Floor
+				}
+			}
 		}
 	}
 	//fmt.Printf("States: %#v\n", states)

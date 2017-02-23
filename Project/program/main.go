@@ -12,6 +12,7 @@ import (
 func main() {
 	var id string
 	flag.StringVar(&id, "id", "", "ID of this peer")
+	simulator := flag.Bool("sim", false, "Run in simulator mode")
 	flag.Parse()
 	fmt.Println("Starting...")
 
@@ -21,7 +22,7 @@ func main() {
 	go network.UDPinit(id, stateRxChannel, stateTxChannel)
 
 	// Initialize elevator driver
-	driver.ElevatorDriverInit()
+	driver.ElevatorDriverInit(*simulator)
 
 	// Start event listener
 	buttonEventChannel := make(chan driver.ButtonEvent)
@@ -29,15 +30,15 @@ func main() {
 	go driver.EventListener(buttonEventChannel, floorEventChannel)
 
 	// Initialize state machine
-	go fsm.Init(stateRxChannel, stateTxChannel)
+	go fsm.Init(stateRxChannel, stateTxChannel, buttonEventChannel, floorEventChannel)
 
 	for {
 		select {
-		case updatedFloor := <-floorEventChannel:
-			stateRxChannel <- fsm.StateMsg{Id: id, Direction: 1, Floor: updatedFloor}
-			fmt.Println("received", updatedFloor)
+		//case updatedFloor := <-floorEventChannel:
+		//	stateRxChannel <- fsm.StateMsg{Id: id, Direction: 1, Floor: updatedFloor}
+		//	fmt.Println("Arrived at floor:", updatedFloor)
 		case button := <-buttonEventChannel:
-			fmt.Println(button)
+			fmt.Println("Button pressed: ", button)
 		}
 	}
 }

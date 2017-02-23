@@ -79,7 +79,7 @@ func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
 		id = fmt.Sprintf("peer-%s-%d", localIP, os.Getpid())
 	}
 
-	states := make([]fsm.State, 0)
+	states := make([]fsm.ElevatorData, 0)
 
 	// We make a channel for receiving updates on the id's of the peers that are
 	//  alive on the network
@@ -127,7 +127,7 @@ func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
 			connectedPeers = p
 			fmt.Printf("%02d:%02d:%02d.%03d - Peer update:\n", time.Now().Hour(), time.Now().Minute(), time.Now().Second(), time.Now().UnixNano()%1e6/1e3)
 			if len(p.New) > 0 {
-				var temp fsm.State
+				var temp fsm.ElevatorData
 				temp.Id = p.New
 				fmt.Printf("  New:\t\t%q\n", p.New)
 				states = append(states, temp)
@@ -135,7 +135,7 @@ func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
 			}
 			if len(p.Lost) > 0 {
 				fmt.Printf("  Lost:\t\t%q\n", p.Lost)
-				var temp []fsm.State
+				var temp []fsm.ElevatorData
 				for _, element := range states {
 					if element.Id != p.Lost[0] {
 						temp = append(temp, element)
