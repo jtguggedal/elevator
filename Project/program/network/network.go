@@ -5,6 +5,7 @@ import (
 	"./network/bcast"
 	"./network/localip"
 	"./network/peers"
+	//"./../order_handler"
 	//"flag"
 	"fmt"
 	//"net"
@@ -25,10 +26,17 @@ type HelloMsg struct {
 	Iter    int
 }
 
+type UDPmessageType int
+
+const (
+	MsgState			= iota
+	MsgNewOrder
+	MsgFinishedOrder
+)
+
 type UDPmessage struct {
-	Address int
+	Type 	UDPmessageType
 	Data    []byte
-	Length  int
 }
 
 /*
@@ -61,7 +69,13 @@ func UDPinit(txChannel, rxChannel chan UDPmessage) {
 
 }*/
 
-func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
+func UDPinit(	id string,
+				stateRxChannel,
+				stateTxChannel chan fsm.StateMsg,
+				orderRxChannel,
+				orderTxChannel chan UDPmessage,
+				rxChannel chan UDPmessage,
+				txChannel chan UDPmessage) {
 
 	// Our id can be anything. Here we pass it on the command line, using
 	//  `go run main.go -id=our_id`
@@ -95,31 +109,14 @@ func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
 	// ... and start the transmitter/receiver pair on some port
 	// These functions can take any number of channels! It is also possible to
 	//  start multiple transmitters/receivers on the same port.
-	go bcast.Transmitter(bcastPort, stateTxChannel)
-	go bcast.Receiver(bcastPort, stateRxChannel)
+	go bcast.Transmitter(bcastPort, txChannel)
+	go bcast.Receiver(bcastPort, rxChannel)
 
-	// The example message. We just send one of these every second.
-	/*go func() {
-		stateMsg := fsm.StateMsg{Id: id, Direction: fsm.DIRECTION_UP, Floor: 1}
-		for {
-			stateTx <- stateMsg
-			time.Sleep(1 * time.Second)
-		}
-	}()*/
 
 	timerChan := make(chan peers.PeerUpdate)
 	startChan := make(chan bool)
-	/*
-		// Check after 3 seconds which nodes are online
-		go func() {
-			for {
-				time.Sleep(3 * time.Second)
-				//timerChan <- connectedPeers
-			}
-		}()*/
 
-	// Init function for FSM
-	//fsm.Init(stateRx, states)
+
 
 	for {
 		select {
@@ -145,6 +142,8 @@ func UDPinit(id string, stateRxChannel, stateTxChannel chan fsm.StateMsg) {
 				fmt.Println("States: ", states)
 			}
 			fmt.Printf("  Connected:\t%q\n\n", connectedPeers.Peers)
+		case order := <-orderTxChannel:
+			txChannel <- order
 		case done := <-timerChan:
 			fmt.Printf("Connected nodes:    %q\n", done.Peers)
 			//startChan <- true

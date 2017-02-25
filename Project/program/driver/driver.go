@@ -22,9 +22,9 @@ const (
 )
 
 const (
-	BUTTON_CALL_UP   = 0
-	BUTTON_CALL_DOWN = 1
-	BUTTON_COMMAND   = 2
+	ButtonExternalUp   		= 0
+	ButtonExternalDown 		= 1
+	ButtonInternalOrder   	= 2
 )
 
 const (
@@ -33,9 +33,9 @@ const (
 )
 
 type ButtonEvent struct {
-	Button int
-	Floor  int
-	Status int
+	Type 	ButtonType
+	Floor  	int
+	Status 	int
 }
 
 func ElevatorDriverInit(simulator bool) {
@@ -78,7 +78,7 @@ func EventListener(
 				if GetButtonSignal(button, floor) != 0 {
 					buttonEventChannel <- ButtonEvent{
 						Floor:  floor,
-						Button: button,
+						Type: ButtonType(button),
 						Status: GetButtonSignal(button, floor)}
 					time.Sleep(500 * time.Millisecond)
 				}

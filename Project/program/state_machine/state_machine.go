@@ -23,8 +23,7 @@ type ElevatorData struct {
 
 type StateMsg ElevatorData
 
-func Init(	stateRx, stateTx chan StateMsg, 
-			buttonEventChannel chan driver.ButtonEvent, 
+func Init(	stateRx, stateTx chan StateMsg,  
 			floorEventChannel chan int /*, states []State*/) {
 
 	go FloorMonitor(floorEventChannel)
