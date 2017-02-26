@@ -18,7 +18,7 @@ type ButtonType int
 const (
 	DirectionDown MotorDirection = -1
 	DirectionStop MotorDirection = 0
-	DriectionUp   MotorDirection= 1
+	DirectionUp   MotorDirection= 1
 )
 
 const (

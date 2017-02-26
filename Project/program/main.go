@@ -8,7 +8,7 @@ import (
 	"fmt"
 	//"time"
 	"flag"
-	"encoding/json"
+	//"encoding/json"
 )
 
 func main() {
@@ -21,13 +21,14 @@ func main() {
 	// Initialize network
 	UDPrxChannel := make(chan network.UDPmessage)
 	UDPtxChannel := make(chan network.UDPmessage)
-	stateRxChannel := make(chan fsm.StateMsg)
-	stateTxChannel := make(chan fsm.StateMsg)
+	stateRxChannel := make(chan network.UDPmessage)
+	stateTxChannel := make(chan network.UDPmessage)
 	orderRxChannel := make(chan network.UDPmessage)
 	orderTxChannel := make(chan network.UDPmessage)
 	orderFinishedChannel := make(chan network.UDPmessage)
 	buttonEventChannel := make(chan driver.ButtonEvent)
 	floorEventChannel := make(chan int)
+	currentFloorChannel := make(chan int)
 
 	go network.UDPinit(	id,
 						stateRxChannel,
@@ -46,67 +47,30 @@ func main() {
 	// Initialize state machine
 	go fsm.Init(stateRxChannel,
 				stateTxChannel,
-				floorEventChannel)
+				floorEventChannel,
+				currentFloorChannel)
 
 	// Initialize order handler
 	go order_handler.Init(	orderRxChannel,
 							orderTxChannel,
 							orderFinishedChannel,
-							buttonEventChannel)
+							buttonEventChannel,
+							currentFloorChannel	)
 
 
 	for {
 		select {
 
+		// Route incoming UDP messages to the right module
 		case msg := <-UDPrxChannel:
-
-				receivedData := msg
 			switch msg.Type {
-			/*case network.MsgState:
-
-				// State message
-				// Proper way to assert interface:
-				//receivedData, ok := msg.Data.(fsm.StateMsg)
-				ok := true
-				if ok {
-					stateRxChannel <- receivedData
-					fmt.Println("Received state message: ", receivedData)
-					continue
-				}
-				fmt.Println("Wrongly formatted state message received: ", msg.Data)*/
+			case network.MsgState:
+				stateRxChannel <- msg
 			case network.MsgNewOrder:
-
-				// New order message
-				//receivedData, ok := msg.Data.(order_handler.Order)
-				ok := true
-				if ok {
-					orderRxChannel <- msg
-					//fmt.Println("Received new order message: ", receivedData)
-					continue
-				}
-				//fmt.Println("Wrongly formatted new order message received: ", msg.Data, receivedData)
-				//orderRxChannel <- msg
+				orderRxChannel <- msg
 			case network.MsgFinishedOrder:
-
-				// Order is handled
-				//receivedData, ok := msg.Data.(order_handler.Order)
-				ok := true
-				if ok {
-					orderFinishedChannel <- msg
-					fmt.Println("Received finished order message: ", receivedData)
-					continue
-				}
-				var data order_handler.Order
-				json.Unmarshal([]byte(msg.Data), &data)
-				fmt.Println("Wrongly formatted finished order message received: ", data)
+				orderFinishedChannel <- msg
 			}
-
-
-		//case updatedFloor := <-floorEventChannel:
-		//	stateRxChannel <- fsm.StateMsg{Id: id, Direction: 1, Floor: updatedFloor}
-		//	fmt.Println("Arrived at floor:", updatedFloor)
-		//case button := <-buttonEventChannel:
-		//	fmt.Println("Button pressed: ", button)
 		}
 	}
 }

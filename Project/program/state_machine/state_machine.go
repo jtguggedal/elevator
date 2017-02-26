@@ -2,7 +2,10 @@ package state_machine
 
 import (
 	"./../driver"
+	"./../network"
 	"fmt"
+	"encoding/json"
+	"time"
 )
 
 type elevatorDirection driver.MotorDirection
@@ -14,6 +17,8 @@ const (
 	doorOpen
 )
 
+const doorOpenTime = 1
+
 type ElevatorData struct {
 	Id        	string
 	Direction 	elevatorDirection
@@ -23,10 +28,11 @@ type ElevatorData struct {
 
 type StateMsg ElevatorData
 
-func Init(	stateRx, stateTx chan StateMsg,  
-			floorEventChannel chan int /*, states []State*/) {
+func Init(	stateRx, stateTx chan network.UDPmessage,
+			floorEventChannel <-chan int,
+			floorReachedChannel chan<- int /*, states []State*/) {
 
-	go FloorMonitor(floorEventChannel)
+	go FloorMonitor(floorEventChannel, floorReachedChannel)
 	go StateMonitor(stateRx)
 	/*for {
 		select {
@@ -39,12 +45,13 @@ func Init(	stateRx, stateTx chan StateMsg,
 	}*/
 }
 
-func FloorMonitor(channel chan int) {
+func FloorMonitor(floorEventChannel <-chan int, floorReachedChannel chan<- int) {
 	var floorSignal int
 	for {
 		select {
-		case floorSignal = <-channel:
+		case floorSignal = <-floorEventChannel:
 			if floorSignal >= 0 {
+				floorReachedChannel <- floorSignal
 				if(floorSignal >= driver.NUMBER_OF_FLOORS) {
 					driver.SetMotorDirection(driver.DirectionStop)
 				}
@@ -57,11 +64,13 @@ func FloorMonitor(channel chan int) {
 	}
 }
 
-func StateMonitor(stateChannel <-chan StateMsg) {
+func StateMonitor(stateChannel <-chan network.UDPmessage) {
 	var states []ElevatorData
 	for {
 		select {
-		case receivedState := <- stateChannel:
+		case msg := <- stateChannel:
+			var receivedState StateMsg
+			json.Unmarshal(msg.Data, &receivedState)
 			for i, element := range states {
 				if element.Id == receivedState.Id {
 					states[i].Direction = receivedState.Direction
@@ -70,5 +79,10 @@ func StateMonitor(stateChannel <-chan StateMsg) {
 			}
 		}
 	}
-	//fmt.Printf("States: %#v\n", states)
+	fmt.Printf("States: %#v\n", states)
+}
+
+
+func DoorOpen() {
+	time.Sleep(doorOpenTime * time.Second)
 }

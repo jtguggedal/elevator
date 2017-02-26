@@ -1,7 +1,7 @@
 package network
 
 import (
-	fsm "./../state_machine"
+	//fsm "./../state_machine"
 	"./network/bcast"
 	"./network/localip"
 	"./network/peers"
@@ -71,7 +71,7 @@ func UDPinit(txChannel, rxChannel chan UDPmessage) {
 
 func UDPinit(	id string,
 				stateRxChannel,
-				stateTxChannel chan fsm.StateMsg,
+				stateTxChannel chan UDPmessage,
 				orderRxChannel,
 				orderTxChannel chan UDPmessage,
 				rxChannel chan UDPmessage,
@@ -93,7 +93,7 @@ func UDPinit(	id string,
 		id = fmt.Sprintf("peer-%s-%d", localIP, os.Getpid())
 	}
 
-	states := make([]fsm.ElevatorData, 0)
+	//states := make([]fsm.ElevatorData, 0)
 
 	// We make a channel for receiving updates on the id's of the peers that are
 	//  alive on the network
@@ -124,22 +124,22 @@ func UDPinit(	id string,
 			connectedPeers = p
 			fmt.Printf("%02d:%02d:%02d.%03d - Peer update:\n", time.Now().Hour(), time.Now().Minute(), time.Now().Second(), time.Now().UnixNano()%1e6/1e3)
 			if len(p.New) > 0 {
-				var temp fsm.ElevatorData
-				temp.Id = p.New
-				fmt.Printf("  New:\t\t%q\n", p.New)
-				states = append(states, temp)
-				fmt.Println("States: ", states)
+				//var temp fsm.ElevatorData
+				//temp.Id = p.New
+				fmt.Printf("  New node:\t\t%q\n", p.New)
+				//states = append(states, temp)
+				//fmt.Println("States: ", states)
 			}
 			if len(p.Lost) > 0 {
 				fmt.Printf("  Lost:\t\t%q\n", p.Lost)
-				var temp []fsm.ElevatorData
-				for _, element := range states {
+				//var temp []fsm.ElevatorData
+				/*for _, element := range states {
 					if element.Id != p.Lost[0] {
 						temp = append(temp, element)
 					}
 				}
 				states = temp
-				fmt.Println("States: ", states)
+				fmt.Println("States: ", states)*/
 			}
 			fmt.Printf("  Connected:\t%q\n\n", connectedPeers.Peers)
 		case order := <-orderTxChannel:
