@@ -38,11 +38,14 @@ type ButtonEvent struct {
 	Status 	int
 }
 
-func ElevatorDriverInit(simulator bool) {
+func ElevatorDriverInit(simulator bool,
+		simulatorPort int,
+		buttonEventChannel chan<- ButtonEvent,
+		floorEventChannel chan<- int) {
 	if simulator {
-		C.elev_init(C.ET_Simulation)
+		C.elev_init(C.ET_Simulation, C.int(simulatorPort))
 	} else {
-		C.elev_init(C.ET_Comedi)
+		C.elev_init(C.ET_Comedi, C.int(simulatorPort))
 	}
 
 
@@ -54,11 +57,12 @@ func ElevatorDriverInit(simulator bool) {
 		// Wait for elevator to get down to closest floor and thereby known state
 	}
 	SetMotorDirection(DirectionStop)
+	go eventListener(buttonEventChannel, floorEventChannel)
 }
 
 // Function for enabling event listener for elevator and button events
 // TODO: call this from init function?
-func EventListener(
+func eventListener(
 		buttonEventChannel chan<- ButtonEvent,
 		floorEventChannel chan<- int) {
 

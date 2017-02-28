@@ -10,6 +10,7 @@ import (
 
 type elevatorDirection driver.MotorDirection
 type elevatorState int
+type peerType string
 
 const (
 	idle elevatorState = iota
@@ -30,22 +31,32 @@ type StateMsg ElevatorData
 
 func Init(	stateRx, stateTx chan network.UDPmessage,
 			floorEventChannel <-chan int,
-			floorReachedChannel chan<- int /*, states []State*/) {
+			floorReachedChannel chan<- int,
+			peerStatusChannel <-chan network.PeerStatus,
+			livePeersChannel chan []string) {
 
-	go FloorMonitor(floorEventChannel, floorReachedChannel)
-	go StateMonitor(stateRx)
-	/*for {
+	var livePeers []string
+	var elevatorStates map[peerType]ElevatorData
+	stateUpdateLocal := make(chan ElevatorData)
+
+	go peerMonitor(peerStatusChannel, livePeersChannel)
+	go floorMonitor(floorEventChannel, floorReachedChannel)
+	go stateMonitor(stateRx, stateTx, stateUpdateLocal)
+
+
+	for {
 		select {
-		case receivedState := <-stateRx:
-			//var states []State
-			//states = append(states, State(receivedState))
-			//StateChange(states, receivedState)
-			fmt.Println(receivedState)
+		case livePeers = <- livePeersChannel:
+			fmt.Println("LIVE PEER UPDATE:", len(livePeers))
+
+		case stateUpdate := <- stateRx:
+			fmt.Println("STATE UPDATE FROM SFM:", elevatorStates, stateUpdate)
+
 		}
-	}*/
+	}
 }
 
-func FloorMonitor(floorEventChannel <-chan int, floorReachedChannel chan<- int) {
+func floorMonitor(floorEventChannel <-chan int, floorReachedChannel chan<- int) {
 	var floorSignal int
 	for {
 		select {
@@ -64,11 +75,11 @@ func FloorMonitor(floorEventChannel <-chan int, floorReachedChannel chan<- int) 
 	}
 }
 
-func StateMonitor(stateChannel <-chan network.UDPmessage) {
+func stateMonitor(stateRx <-chan network.UDPmessage, stateTx chan<- network.UDPmessage, stateUpdateLocal chan<- ElevatorData) {
 	var states []ElevatorData
 	for {
 		select {
-		case msg := <- stateChannel:
+		case msg := <- stateRx:
 			var receivedState StateMsg
 			json.Unmarshal(msg.Data, &receivedState)
 			for i, element := range states {
@@ -80,6 +91,19 @@ func StateMonitor(stateChannel <-chan network.UDPmessage) {
 		}
 	}
 	fmt.Printf("States: %#v\n", states)
+}
+
+func peerMonitor(peerStatusChannel <-chan network.PeerStatus, livePeersChannel chan<- []string) {
+	for {
+		select {
+		case update := <- peerStatusChannel:
+			var peerList []string
+			for _, peer := range update.Peers {
+				peerList = append(peerList, peer)
+			}
+			livePeersChannel <- peerList
+		}
+	}
 }
 
 

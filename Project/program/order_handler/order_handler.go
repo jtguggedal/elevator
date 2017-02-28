@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	DirectionUp		= driver.ButtonExternalUp
-	DirectionDown	= driver.ButtonExternalDown
+	directionUp		= driver.ButtonExternalUp
+	directionDown	= driver.ButtonExternalDown
 )
 
 const (
@@ -19,18 +19,18 @@ const (
 	orderExternal = 2
 )
 
-type OrderDirection int
-type OrderType int
+type orderDirection int
+type orderType int
 
 type Order struct {
 	Id			int
-	Type		OrderType
+	Type		orderType
 	Floor		int
-	Direction	OrderDirection
+	Direction	orderDirection
 	AssignedTo	int
 }
 
-type OrderList map[int]Order
+type orderList map[int]Order
 
 func ReceiveOrder(orderRx chan Order) {
 
@@ -43,9 +43,9 @@ func Init(	orderRx <-chan network.UDPmessage,
 			buttonEventChannel <-chan  driver.ButtonEvent,
 			currentFloorChannel <-chan int) {
 
-	externalOrders := make(OrderList)
-	internalOrders := make(OrderList)
-	orderChannel := make(chan OrderList)
+	externalOrders := make(orderList)
+	internalOrders := make(orderList)
+	orderChannel := make(chan orderList)
 	internalOrderFinished := make(chan Order)
 	externalOrderFinished := make(chan Order)
 
@@ -64,9 +64,11 @@ func Init(	orderRx <-chan network.UDPmessage,
 			err := json.Unmarshal(msg.Data, &receivedOrder)
 			if err == nil {
 				if !checkIfOrderExists(externalOrders, receivedOrder) {
+
 					externalOrders[receivedOrder.Id] = receivedOrder
 					internalOrders[receivedOrder.Id] = receivedOrder
 					orderChannel <- internalOrders
+
 					fmt.Println("External orders updated:", externalOrders)
 					continue
 				} else {
@@ -77,28 +79,22 @@ func Init(	orderRx <-chan network.UDPmessage,
 			}
 		case buttonEvent := <- buttonEventChannel:
 			driver.SetButtonLamp(buttonEvent.Type, buttonEvent.Floor, 1)
+
 			switch buttonEvent.Type  {
 			case driver.ButtonExternalUp:
 
 				// TODO: error handling
 				fmt.Println("Received external button event: UP from floor", buttonEvent.Floor)
-				newOrder, _ := json.Marshal( Order{
-									Id: int(time.Now().UnixNano()/1e8-1488*1e7),
-									Type: orderExternal,
-									Floor: buttonEvent.Floor,
-									Direction: DirectionUp})
+				newOrder := orderToJson(makeOrderId(), orderExternal, buttonEvent.Floor, directionUp)
 				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: newOrder}
 
 			case driver.ButtonExternalDown:
 
 				// TODO: error handling
 				fmt.Println("Received external button event: DOWN from floor", buttonEvent.Floor)
-				newOrder, _ := json.Marshal( Order{
-									Id: int(time.Now().UnixNano()/1e8-1488*1e7),
-									Type: orderExternal,
-									Floor: buttonEvent.Floor,
-									Direction: DirectionDown})
-				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: newOrder}
+				newOrderJson := orderToJson(makeOrderId(), orderExternal, buttonEvent.Floor, directionDown)
+				broadcastNewOrder(newOrderJson, orderTx)
+				fmt.Println("Order sent")
 
 			case driver.ButtonInternalOrder:
 
@@ -118,27 +114,28 @@ func Init(	orderRx <-chan network.UDPmessage,
 			}
 		case orderFinished := <-internalOrderFinished:
 			delete(internalOrders, orderFinished.Id)
-			//orderChannel <- internalOrders
 			driver.SetButtonLamp(driver.ButtonInternalOrder, orderFinished.Floor, 0)
 			fmt.Println("Order completed:", orderFinished, internalOrders)
 
 		case orderFinished := <-externalOrderFinished:
-			delete(externalOrders, orderFinished.Id)
 			driver.SetButtonLamp(driver.ButtonType(orderFinished.Direction), orderFinished.Floor, 0)
-			fmt.Println("Order completed:", orderFinished, externalOrders)
+			delete(externalOrders, orderFinished.Id)
+			//orderJson, _ := json.Marshal(orderFinished)
+			//orderTx <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
+			fmt.Println("External order completed:", orderFinished, externalOrders)
 		}
 	}
 }
 
 
-func executeOrders(	orderChannel <-chan OrderList,
+func executeOrders(	orderChannel <-chan orderList,
 					currentFloorChannel <-chan int,
 					orderFinishedChannel chan<- network.UDPmessage,
 					internalOrderFinished chan<- Order,
 					externalOrderFinished chan<- Order) {
 
 	currentFloor := 0
-	var orders OrderList
+	var orders orderList
 	for {
 		select {
 		case currentFloor = <- currentFloorChannel:
@@ -154,7 +151,7 @@ func executeOrders(	orderChannel <-chan OrderList,
 					fmt.Println("Door open")
 					state_machine.DoorOpen()
 					fmt.Println("Door closed")
-					//fmt.Println("shortcut", orders)
+					fmt.Println("shortcut", orders)
 				}
 			}
 		case orders = <- orderChannel:
@@ -175,6 +172,25 @@ func executeOrders(	orderChannel <-chan OrderList,
 	}
 }
 
+func makeOrderId() int {
+	return 	int(time.Now().UnixNano()/1e8-1488*1e7)
+}
+
+func orderToJson(id int, orderType orderType, floor int, direction orderDirection) []byte {
+	ret, _ := json.Marshal(Order{
+						Id: id,
+						Type: orderType,
+						Floor: floor,
+						Direction: direction})
+	return ret
+}
+
+func broadcastNewOrder(order []byte, broadcastChannel chan<- network.UDPmessage) {
+	broadcastChannel <- network.UDPmessage{Type: network.MsgNewOrder, Data: order}
+}
+
+
+
 func checkIfOrderExists(orders map[int]Order, newOrder Order)(bool) {
 	for _, order := range orders {
 		if (order.Floor == newOrder.Floor) && (order.Direction == newOrder.Direction) {
@@ -184,7 +200,7 @@ func checkIfOrderExists(orders map[int]Order, newOrder Order)(bool) {
 	return false
 }
 
-func firstOrder(input OrderList)(int) {
+func firstOrder(input orderList)(int) {
 	var ret  int = 10e15
 	for id, _ := range input {
 		if id < ret {

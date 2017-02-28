@@ -6,6 +6,7 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <string.h>
 
 #include "channels.h"
 #include "io.h"
@@ -35,7 +36,7 @@ static elev_type elevatorType = ET_Comedi;
 static int sockfd;
 static pthread_mutex_t sockmtx;
 
-void elev_init(elev_type e) {
+void elev_init(elev_type e, int sim_port) {
     elevatorType = e;
     switch(elevatorType) {
     case ET_Comedi:
@@ -58,19 +59,19 @@ void elev_init(elev_type e) {
         ;
         char ip[16] = {0};
         char port[8] = {0};
+        snprintf(port, sizeof(port), "%d", sim_port);
         con_load("simulator.con",
             con_val("com_ip",   ip,   "%s")
-            con_val("com_port", port, "%s")
         )
-        
+
         pthread_mutex_init(&sockmtx, NULL);
-    
+
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         assert(sockfd != -1 && "Unable to set up socket");
 
         struct addrinfo hints = {
-            .ai_family      = AF_UNSPEC, 
-            .ai_socktype    = SOCK_STREAM, 
+            .ai_family      = AF_UNSPEC,
+            .ai_socktype    = SOCK_STREAM,
             .ai_protocol    = IPPROTO_TCP,
         };
         struct addrinfo* res;
