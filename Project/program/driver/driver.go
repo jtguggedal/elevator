@@ -67,7 +67,9 @@ func eventListener(
 		floorEventChannel chan<- int) {
 
 	var prevFloorSignal int
-	var currentFloorSignal int
+	var currentFloorSignal int = GetFloorSensorSignal()
+	floorEventChannel <- currentFloorSignal
+
 	for {
 
 		// Passing on which floor the elevator is at if it has changed

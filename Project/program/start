@@ -2,4 +2,4 @@
 
 gnome-terminal -x sh -c "rdmd simulator/server/sim_server.d"
 clear
-go run main.go
+go run main.go -sim=true -id=1

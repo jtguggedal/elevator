@@ -2,11 +2,11 @@ package main
 
 import (
 	"./driver"
-	fsm "./state_machine"
+	"./fsm"
 	"./network"
 	"./order_handler"
 	"fmt"
-	//"time"
+	"time"
 	"flag"
 	//"encoding/json"
 )
@@ -14,7 +14,7 @@ import (
 func main() {
 	var id string
 	flag.StringVar(&id, "id", "", "ID of this peer")
-	flag.Int("sim_port", 15657, "Port used for simulator communications")
+	simulatorPort := flag.Int("sim_port", 15657, "Port used for simulator communications")
 	simulator := flag.Bool("sim", false, "Run in simulator mode")
 	flag.Parse()
 	fmt.Println("Starting...")
@@ -29,8 +29,9 @@ func main() {
 	orderFinishedChannel := make(chan network.UDPmessage)
 	buttonEventChannel := make(chan driver.ButtonEvent)
 	floorEventChannel := make(chan int)
+	targetFloorChannel := make(chan int)
 	currentFloorChannel := make(chan int)
-	livePeersChannel := make(chan []string)
+	//livePeersChannel := make(chan []string)
 
 	go network.UDPinit(	id,
 						stateRxChannel,
@@ -42,22 +43,20 @@ func main() {
 						peerStatusChannel)
 
 	driver.ElevatorDriverInit(*simulator,
+			*simulatorPort,
 			buttonEventChannel,
 			floorEventChannel)
 
 
-	go fsm.Init(stateRxChannel,
-				stateTxChannel,
-				floorEventChannel,
-				currentFloorChannel,
-				peerStatusChannel,
-				livePeersChannel)
+	go fsm.Init(floorEventChannel,
+				targetFloorChannel)
 
 	go order_handler.Init(	orderRxChannel,
 							orderTxChannel,
 							orderFinishedChannel,
 							buttonEventChannel,
-							currentFloorChannel	)
+							currentFloorChannel,
+							targetFloorChannel	)
 
 
 	for {
@@ -76,6 +75,8 @@ func main() {
 			case network.MsgFinishedOrder:
 				orderFinishedChannel <- msg
 			}
+		case <- time.After(15 * time.Second):
+			targetFloorChannel <- 3
 		}
 	}
 }

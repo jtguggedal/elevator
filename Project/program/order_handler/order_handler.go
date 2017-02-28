@@ -41,7 +41,8 @@ func Init(	orderRx <-chan network.UDPmessage,
 			orderTx chan<- network.UDPmessage,
 			orderFinishedChannel chan network.UDPmessage,
 			buttonEventChannel <-chan  driver.ButtonEvent,
-			currentFloorChannel <-chan int) {
+			currentFloorChannel <-chan int,
+			targetFloorChannel chan<- int) {
 
 	externalOrders := make(orderList)
 	internalOrders := make(orderList)
