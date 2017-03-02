@@ -69,7 +69,8 @@ func main() {
 							currentFloorChannel,
 							targetFloorChannel,
 							floorCompletedChannel,
-							getStateChannel)
+							getStateChannel,
+							stateRxChannel)
 
 
 	for {
@@ -81,7 +82,7 @@ func main() {
 		case msg := <-UDPrxChannel:
 			switch msg.Type {
 			case network.MsgState:
-				//stateRxChannel <- msg
+				stateRxChannel <- msg
 			case network.MsgNewOrder:
 				orderRxChannel <- msg
 			case network.MsgFinishedOrder:
@@ -91,6 +92,7 @@ func main() {
 			//targetFloorChannel <- 3
 			fmt.Println("Ping")
 		case elevatorData := <- distributeStateChannel:
+			elevatorData.Id = localIp
 			getStateChannel <- elevatorData
 			data, _ := json.Marshal(elevatorData)
 			fmt.Println("ready for sending")

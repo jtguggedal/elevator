@@ -2,6 +2,7 @@ package fsm
 
 import (
     "./../driver"
+    "./../network"
     "time"
     "fmt"
 )
@@ -20,6 +21,7 @@ const targetFloorReached = -1
 const sendStateInterval = 400000 * time.Millisecond
 
 type ElevatorData_t struct {
+    Id      network.Ip
     State   state_t
     Floor   int
 }

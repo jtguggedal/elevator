@@ -47,11 +47,13 @@ func Init(	localIp network.Ip,
 			currentFloorChannel <-chan int,
 			targetFloorChannel chan<- int,
 			floorCompletedChannel <-chan int,
-			getStateChannel <-chan fsm.ElevatorData_t) {
+			getStateChannel <-chan fsm.ElevatorData_t,
+			stateRxChannel <-chan network.UDPmessage) {
 
 	var externalOrders orderList
 	var internalOrders orderList
 	var elevatorData fsm.ElevatorData_t
+	var allElevatorStates []fsm.ElevatorData_t
 //	orderChannel := make(chan orderList)
 	distributeOrderChannel := make(chan Order)
 
@@ -99,13 +101,29 @@ func Init(	localIp network.Ip,
 				order.Origin = localIp
 				orderJson, _ := json.Marshal(order)
 				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
-				fmt.Println("Order broadcasted" )
+				//fmt.Println("Order broadcasted" )
 			}
 
 		case <- floorCompletedChannel:
 		case elevatorData = <- getStateChannel:
 			fmt.Println("Elevator data:", elevatorData)
 		case <- getStateChannel:
+		case stateJson := <- stateRxChannel:
+			var state fsm.ElevatorData_t
+			var stateExists bool
+			jsonToStruct(stateJson.Data, &state)
+
+			// Save to state array
+			for key, data := range allElevatorStates {
+				if state.Id == data.Id {
+					stateExists = true
+					allElevatorStates[key] = state
+				}
+			}
+			if !stateExists {
+				allElevatorStates = append(allElevatorStates, state)
+			}
+			fmt.Println("States:", allElevatorStates)
 		}
 	}
 }
@@ -184,6 +202,17 @@ func removeDoneOrders(orders []Order, doneOrder Order) []Order {
 func makeOrderId() int {
 	return 	int(time.Now().UnixNano()/1e8-1488*1e7)
 }
+
+func jsonToStruct(input []byte, output interface{}) {
+	temp := output
+	err := json.Unmarshal(input, temp)
+	if err == nil {
+		output = temp
+	} else {
+		fmt.Println("Error decoding JSON:", err)
+	}
+}
+
 
 func orderToJson(id int, orderType orderType, floor int, direction orderDirection) []byte {
 	ret, _ := json.Marshal(Order{
