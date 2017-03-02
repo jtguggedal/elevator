@@ -3,7 +3,7 @@ package order_handler
 import (
 	"./../driver"
 	"./../network"
-	"./../state_machine"
+	"./../fsm"
 	"time"
 	"fmt"
 	"encoding/json"
@@ -25,59 +25,96 @@ type orderType int
 type Order struct {
 	Id			int
 	Type		orderType
+	Origin		network.Ip
 	Floor		int
 	Direction	orderDirection
 	AssignedTo	int
+	Done 		bool
 }
 
-type orderList map[int]Order
+type orderList []Order
 
 func ReceiveOrder(orderRx chan Order) {
 
 }
 
 
-func Init(	orderRx <-chan network.UDPmessage,
+func Init(	localIp network.Ip,
+			orderRx <-chan network.UDPmessage,
 			orderTx chan<- network.UDPmessage,
 			orderFinishedChannel chan network.UDPmessage,
 			buttonEventChannel <-chan  driver.ButtonEvent,
 			currentFloorChannel <-chan int,
-			targetFloorChannel chan<- int) {
+			targetFloorChannel chan<- int,
+			floorCompletedChannel <-chan int,
+			getStateChannel <-chan fsm.ElevatorData_t) {
 
-	externalOrders := make(orderList)
-	internalOrders := make(orderList)
-	orderChannel := make(chan orderList)
-	internalOrderFinished := make(chan Order)
-	externalOrderFinished := make(chan Order)
+	var externalOrders orderList
+	var internalOrders orderList
+	var elevatorData fsm.ElevatorData_t
+//	orderChannel := make(chan orderList)
+	distributeOrderChannel := make(chan Order)
 
-	go executeOrders(	orderChannel,
-						currentFloorChannel,
-						orderFinishedChannel,
-						internalOrderFinished,
-						externalOrderFinished)
+	newOrderChannel := make(chan bool)
+
+//	var targetFloor int
+
+
+	go buttonEventListener(	buttonEventChannel,
+							distributeOrderChannel)
+
+	go prioritizeOrders(newOrderChannel,
+						&externalOrders,
+						&internalOrders,
+						targetFloorChannel)
+	//go execute()
 
 	for {
 		select {
 		case msg := <- orderRx:
-
-			// Message contains order as JSON - converting to Order struct before using
 			var receivedOrder Order
 			err := json.Unmarshal(msg.Data, &receivedOrder)
 			if err == nil {
 				if !checkIfOrderExists(externalOrders, receivedOrder) {
-
-					externalOrders[receivedOrder.Id] = receivedOrder
-					internalOrders[receivedOrder.Id] = receivedOrder
-					orderChannel <- internalOrders
-
+					externalOrders = addOrder(externalOrders, receivedOrder)
 					fmt.Println("External orders updated:", externalOrders)
-					continue
+					newOrderChannel <- true
 				} else {
 					fmt.Println("External order already exists", receivedOrder)
 				}
 			} else {
-				fmt.Println("External order message wrongly formatted", receivedOrder)
+				fmt.Println("External order message wrongly formatted:", err)
 			}
+
+		case order := <- distributeOrderChannel:
+			if order.Type == orderInternal {
+				if !checkIfOrderExists(internalOrders, order) {
+					internalOrders = addOrder(internalOrders, order)
+					//newOrderChannel <- true
+					fmt.Println("Internal orders updated:", internalOrders)
+				} else {
+					fmt.Println("Internal order already exists", order)
+				}
+			} else if order.Type == orderExternal {
+				order.Origin = localIp
+				orderJson, _ := json.Marshal(order)
+				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+				fmt.Println("Order broadcasted" )
+			}
+
+		case <- floorCompletedChannel:
+		case elevatorData = <- getStateChannel:
+			fmt.Println("Elevator data:", elevatorData)
+		case <- getStateChannel:
+		}
+	}
+}
+
+func buttonEventListener(	buttonEventChannel <-chan driver.ButtonEvent,
+							distributeOrderChannel chan<- Order) {
+
+	for {
+		select {
 		case buttonEvent := <- buttonEventChannel:
 			driver.SetButtonLamp(buttonEvent.Type, buttonEvent.Floor, 1)
 
@@ -85,93 +122,64 @@ func Init(	orderRx <-chan network.UDPmessage,
 			case driver.ButtonExternalUp:
 
 				// TODO: error handling
-				fmt.Println("Received external button event: UP from floor", buttonEvent.Floor)
-				newOrder := orderToJson(makeOrderId(), orderExternal, buttonEvent.Floor, directionUp)
-				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: newOrder}
+				fmt.Println("External button event: UP from floor", buttonEvent.Floor)
+				distributeOrderChannel <- Order{Id: makeOrderId(),
+												Type: orderExternal,
+												Floor: buttonEvent.Floor,
+												Direction: directionUp}
 
 			case driver.ButtonExternalDown:
 
 				// TODO: error handling
-				fmt.Println("Received external button event: DOWN from floor", buttonEvent.Floor)
-				newOrderJson := orderToJson(makeOrderId(), orderExternal, buttonEvent.Floor, directionDown)
-				broadcastNewOrder(newOrderJson, orderTx)
-				fmt.Println("Order sent")
+				fmt.Println("External button event: DOWN from floor", buttonEvent.Floor)
+				distributeOrderChannel <- Order{Id: makeOrderId(),
+												Type: orderExternal,
+												Floor: buttonEvent.Floor,
+												Direction: directionDown}
 
 			case driver.ButtonInternalOrder:
 
 				// TODO: error handling
-				fmt.Println("Received internal button event: go to floor", buttonEvent.Floor)
-				newOrder := Order{	Id: int(time.Now().UnixNano()/1e8-1488*1e7),
-									Type: orderInternal,
-									Floor: buttonEvent.Floor}
-				if !checkIfOrderExists(internalOrders, newOrder) {
-					internalOrders[newOrder.Id] = newOrder
-					orderChannel <- internalOrders
-					fmt.Println("Internal orders updated:", internalOrders)
-					continue
-				} else {
-					fmt.Println("Internal order already exists", newOrder)
-				}
+				fmt.Println("Internal button event: go to floor", buttonEvent.Floor)
+				distributeOrderChannel <- Order{Id: makeOrderId(),
+												Type: orderInternal,
+												Floor: buttonEvent.Floor}
 			}
-		case orderFinished := <-internalOrderFinished:
-			delete(internalOrders, orderFinished.Id)
-			driver.SetButtonLamp(driver.ButtonInternalOrder, orderFinished.Floor, 0)
-			fmt.Println("Order completed:", orderFinished, internalOrders)
-
-		case orderFinished := <-externalOrderFinished:
-			driver.SetButtonLamp(driver.ButtonType(orderFinished.Direction), orderFinished.Floor, 0)
-			delete(externalOrders, orderFinished.Id)
-			//orderJson, _ := json.Marshal(orderFinished)
-			//orderTx <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
-			fmt.Println("External order completed:", orderFinished, externalOrders)
 		}
 	}
 }
 
 
-func executeOrders(	orderChannel <-chan orderList,
-					currentFloorChannel <-chan int,
-					orderFinishedChannel chan<- network.UDPmessage,
-					internalOrderFinished chan<- Order,
-					externalOrderFinished chan<- Order) {
-
-	currentFloor := 0
-	var orders orderList
+func prioritizeOrders(	newOrderSignal <-chan bool,
+						externalOrders,
+						internalOrders *orderList,
+						targetFloorChannel chan<- int) {
 	for {
 		select {
-		case currentFloor = <- currentFloorChannel:
-			for _, order := range orders {
-				if order.Floor == currentFloor {
-					if order.Type == orderInternal {
-						internalOrderFinished<- order
-					} else if order.Type == orderExternal {
-						externalOrderFinished<- order
-					}
-					delete(orders, order.Id)
-					driver.SetMotorDirection(driver.DirectionStop)
-					fmt.Println("Door open")
-					state_machine.DoorOpen()
-					fmt.Println("Door closed")
-					fmt.Println("shortcut", orders)
-				}
-			}
-		case orders = <- orderChannel:
-			fmt.Println("Received for exectution:", orders)
-		}
-		if len(orders) > 0 {
-			first := firstOrder(orders)
-			order := orders[first]
-			if order.Floor == currentFloor {
-				driver.SetMotorDirection(driver.DirectionStop)
-				internalOrderFinished<- order
-			} else if order.Floor > currentFloor {
-				driver.SetMotorDirection(driver.DirectionUp)
-			} else if order.Floor < currentFloor {
-				driver.SetMotorDirection(driver.DirectionDown)
-			}
+		case <-newOrderSignal:
+			fmt.Println("EXT", len(*externalOrders))
 		}
 	}
 }
+
+
+
+func addOrder(orders []Order, newOrder Order) []Order {
+	if !checkIfOrderExists(orders, newOrder) {
+		orders = append(orders, newOrder)
+	}
+	return orders
+}
+
+func removeDoneOrders(orders []Order, doneOrder Order) []Order {
+	for key, order := range orders {
+		if checkIfOrdersEqual(order, doneOrder) && doneOrder.Done == true {
+			orders = append(orders[:key], orders[key+1:]...)
+		}
+	}
+	return orders
+}
+
 
 func makeOrderId() int {
 	return 	int(time.Now().UnixNano()/1e8-1488*1e7)
@@ -191,10 +199,20 @@ func broadcastNewOrder(order []byte, broadcastChannel chan<- network.UDPmessage)
 }
 
 
+func checkIfOrdersEqual(o1, o2 Order) bool {
+	if 	o1.Type == o2.Type 		&&
+		o1.Floor == o2.Floor 	&&
+		o1.Direction == o2.Direction {
+		return true
+	}
+	return false
+}
 
-func checkIfOrderExists(orders map[int]Order, newOrder Order)(bool) {
+func checkIfOrderExists(orders []Order, candidateOrder Order)(bool) {
 	for _, order := range orders {
-		if (order.Floor == newOrder.Floor) && (order.Direction == newOrder.Direction) {
+		if 	(order.Type == candidateOrder.Type)				&&
+			(order.Floor == candidateOrder.Floor) 			&&
+			(order.Direction == candidateOrder.Direction) {
 			return true
 		}
 	}

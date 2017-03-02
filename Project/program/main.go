@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 	"flag"
-	//"encoding/json"
+	"encoding/json"
 )
 
 func main() {
@@ -27,13 +27,19 @@ func main() {
 	orderRxChannel := make(chan network.UDPmessage)
 	orderTxChannel := make(chan network.UDPmessage)
 	orderFinishedChannel := make(chan network.UDPmessage)
-	buttonEventChannel := make(chan driver.ButtonEvent)
-	floorEventChannel := make(chan int)
-	targetFloorChannel := make(chan int)
 	currentFloorChannel := make(chan int)
+	buttonEventChannel := make(chan driver.ButtonEvent)
+	ipChannel := make(chan network.Ip)
+
+	floorReachedChannel := make(chan int)
+	targetFloorChannel := make(chan int)
+	floorCompletedChannel := make(chan int)
+	distributeStateChannel := make(chan fsm.ElevatorData_t)
+	getStateChannel := make(chan fsm.ElevatorData_t)
 	//livePeersChannel := make(chan []string)
 
 	go network.UDPinit(	id,
+						ipChannel,
 						stateRxChannel,
 						stateTxChannel,
 						orderRxChannel,
@@ -41,22 +47,29 @@ func main() {
 						UDPrxChannel,
 						UDPtxChannel,
 						peerStatusChannel)
+	localIp := <- ipChannel
+
 
 	driver.ElevatorDriverInit(*simulator,
 			*simulatorPort,
 			buttonEventChannel,
-			floorEventChannel)
+			floorReachedChannel)
 
 
-	go fsm.Init(floorEventChannel,
-				targetFloorChannel)
+	go fsm.Init(floorReachedChannel,
+				targetFloorChannel,
+				floorCompletedChannel,
+				distributeStateChannel)
 
-	go order_handler.Init(	orderRxChannel,
+	go order_handler.Init(	localIp,
+							orderRxChannel,
 							orderTxChannel,
 							orderFinishedChannel,
 							buttonEventChannel,
 							currentFloorChannel,
-							targetFloorChannel	)
+							targetFloorChannel,
+							floorCompletedChannel,
+							getStateChannel)
 
 
 	for {
@@ -68,15 +81,22 @@ func main() {
 		case msg := <-UDPrxChannel:
 			switch msg.Type {
 			case network.MsgState:
-				stateRxChannel <- msg
+				//stateRxChannel <- msg
 			case network.MsgNewOrder:
 				orderRxChannel <- msg
-				fmt.Println("ds")
 			case network.MsgFinishedOrder:
 				orderFinishedChannel <- msg
 			}
-		case <- time.After(15 * time.Second):
-			targetFloorChannel <- 3
+		case <- time.After(5 * time.Second):
+			//targetFloorChannel <- 3
+			fmt.Println("Ping")
+		case elevatorData := <- distributeStateChannel:
+			getStateChannel <- elevatorData
+			data, _ := json.Marshal(elevatorData)
+			fmt.Println("ready for sending")
+			msg := network.UDPmessage{Type: network.MsgState, Data: data}
+			stateTxChannel <- msg
 		}
+
 	}
 }

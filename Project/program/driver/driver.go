@@ -66,9 +66,8 @@ func eventListener(
 		buttonEventChannel chan<- ButtonEvent,
 		floorEventChannel chan<- int) {
 
-	var prevFloorSignal int
-	var currentFloorSignal int = GetFloorSensorSignal()
-	floorEventChannel <- currentFloorSignal
+	prevFloorSignal := -2
+	var currentFloorSignal int
 
 	for {
 

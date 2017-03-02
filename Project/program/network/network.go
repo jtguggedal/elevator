@@ -16,6 +16,7 @@ import (
 const (
 	peerPort  = 32003
 	bcastPort = 33003
+	statePort = 33004
 )
 
 const (
@@ -32,6 +33,8 @@ type HelloMsg struct {
 	Iter    int
 }
 
+type Ip string
+
 type PeerStatus peers.PeerUpdate
 
 type UDPmessageType int
@@ -43,6 +46,7 @@ type UDPmessage struct {
 }
 
 func UDPinit(	id string,
+				ipChannel chan<- Ip,
 				stateRxChannel,
 				stateTxChannel chan UDPmessage,
 				orderRxChannel,
@@ -67,6 +71,8 @@ func UDPinit(	id string,
 		id = fmt.Sprintf("peer-%s-%d", localIP, os.Getpid())
 	}
 
+	ipChannel <- Ip(id)
+
 	//states := make([]fsm.ElevatorData, 0)
 
 	// We make a channel for receiving updates on the id's of the peers that are
@@ -84,14 +90,16 @@ func UDPinit(	id string,
 	// These functions can take any number of channels! It is also possible to
 	//  start multiple transmitters/receivers on the same port.
 	go bcast.Transmitter(bcastPort, txChannel)
+	go bcast.Transmitter(statePort, stateTxChannel)
 	go bcast.Receiver(bcastPort, rxChannel)
+	go bcast.Receiver(statePort, stateRxChannel)
 
 	timerChan := make(chan peers.PeerUpdate)
 	startChan := make(chan bool)
 
 	for {
 		select {
-		case peers := <-peerUpdateCh:
+		case /*peers := */<-peerUpdateCh:
 		//	peerStatusChannel <- PeerStatus(peers)
 			//fmt.Printf("%02d:%02d:%02d.%03d - Peer update:\n", time.Now().Hour(), time.Now().Minute(), time.Now().Second(), time.Now().UnixNano()%1e6/1e3)
 		/*	if len(peers.New) > 0 {
@@ -101,7 +109,7 @@ func UDPinit(	id string,
 				fmt.Printf("  Lost:\t\t%q\n", peers.Lost)
 			}
 			fmt.Printf("  Connected:\t%q\n\n", connectedPeers.Peers)*/
-			peerStatusChannel <- PeerStatus(peers)
+			//peerStatusChannel <- PeerStatus(peers)
 		case order := <-orderTxChannel:
 			txChannel <- order
 		case done := <-timerChan:
@@ -110,6 +118,9 @@ func UDPinit(	id string,
 			if start == true {
 				fmt.Println("Elevators started. Have a nice day.")
 			}
+		/*case state := <- stateTxChannel:
+			fmt.Println("State sent")
+			txChannel <- state*/
 		}
 	}
 
