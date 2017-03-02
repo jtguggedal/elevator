@@ -17,6 +17,7 @@ const (
 	peerPort  = 32003
 	bcastPort = 33003
 	statePort = 33004
+	orderPort = 33005
 )
 
 const (
@@ -53,7 +54,9 @@ func UDPinit(	id string,
 				orderTxChannel chan UDPmessage,
 				rxChannel chan UDPmessage,
 				txChannel chan UDPmessage,
-				peerStatusChannel chan PeerStatus) {
+				peerStatusChannel chan PeerStatus,
+				orderDoneRxChannel chan UDPmessage,
+				orderDoneTxChannel chan UDPmessage) {
 
 	// Our id can be anything. Here we pass it on the command line, using
 	//  `go run main.go -id=our_id`
@@ -85,8 +88,10 @@ func UDPinit(	id string,
 	//  start multiple transmitters/receivers on the same port.
 	go bcast.Transmitter(bcastPort, txChannel)
 	go bcast.Transmitter(statePort, stateTxChannel)
+	go bcast.Transmitter(orderPort, orderDoneTxChannel)
 	go bcast.Receiver(bcastPort, rxChannel)
 	go bcast.Receiver(statePort, stateRxChannel)
+	go bcast.Receiver(orderPort, orderDoneRxChannel)
 
 	timerChan := make(chan peers.PeerUpdate)
 	startChan := make(chan bool)

@@ -18,7 +18,6 @@ const (
 
 const doorOpenTime = 3
 const targetFloorReached = -1
-const sendStateInterval = 400000 * time.Millisecond
 
 type ElevatorData_t struct {
     Id      network.Ip
@@ -37,13 +36,11 @@ func Init(  floorSignalChannel <-chan int,
     var targetFloor int
     var elevatorData ElevatorData_t
 
-    //sendDataTick := time.Tick(sendStateInterval)
 
     currentFloorChannel := make(chan int)
     targetFloorChannel := make(chan int)
     stateChangedChannel := make(chan ElevatorData_t)
 
-    // initialize to known floor somehow
     go stateHandler(stateChangedChannel, currentFloorChannel, targetFloorChannel, floorCompletedChannel)
 
     for {
@@ -56,7 +53,6 @@ func Init(  floorSignalChannel <-chan int,
         case targetFloor = <- newTargetFloorChannel:
             targetFloorChannel <- targetFloor
         case elevatorData = <- stateChangedChannel:
-            fmt.Println("New state:", elevatorData)
             distributeStateChannel <- elevatorData
         case <- resendStateChannel:
             go func() {
@@ -137,11 +133,11 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
             }
 
         case DoorOpen:
-            floorCompletedChannel <- e.Floor
             targetFloor = targetFloorReached
             driver.SetDoorOpenLamp(1)
             fmt.Println("State: Door open")
             time.Sleep(doorOpenTime * time.Second)
+            floorCompletedChannel <- e.Floor
             driver.SetDoorOpenLamp(0)
             fmt.Println("Door closed")
 

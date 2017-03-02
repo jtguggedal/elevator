@@ -6,7 +6,6 @@ import (
 	"./network"
 	"./order_handler"
 	"fmt"
-	"time"
 	"flag"
 	"encoding/json"
 )
@@ -25,7 +24,8 @@ func main() {
 	stateTxChannel := make(chan network.UDPmessage)
 	orderRxChannel := make(chan network.UDPmessage)
 	orderTxChannel := make(chan network.UDPmessage)
-	orderFinishedChannel := make(chan network.UDPmessage)
+	orderDoneRxChannel := make(chan network.UDPmessage)
+	orderDoneTxChannel := make(chan network.UDPmessage)
 	currentFloorChannel := make(chan int)
 	buttonEventChannel := make(chan driver.ButtonEvent)
 	ipChannel := make(chan network.Ip)
@@ -46,7 +46,9 @@ func main() {
 						orderTxChannel,
 						UDPrxChannel,
 						UDPtxChannel,
-						peerStatusChannel)
+						peerStatusChannel,
+						orderDoneRxChannel,
+						orderDoneTxChannel)
 	localIp := <- ipChannel
 
 
@@ -65,7 +67,8 @@ func main() {
 	go order_handler.Init(	localIp,
 							orderRxChannel,
 							orderTxChannel,
-							orderFinishedChannel,
+							orderDoneRxChannel,
+							orderDoneTxChannel,
 							buttonEventChannel,
 							currentFloorChannel,
 							targetFloorChannel,
@@ -88,17 +91,11 @@ func main() {
 				stateRxChannel <- msg
 			case network.MsgNewOrder:
 				orderRxChannel <- msg
-			case network.MsgFinishedOrder:
-				orderFinishedChannel <- msg
 			}
-		case <- time.After(5 * time.Second):
-			//targetFloorChannel <- 3
-			fmt.Println("Ping")
 		case elevatorData := <- distributeStateChannel:
 			elevatorData.Id = localIp
 			getStateChannel <- elevatorData
 			data, _ := json.Marshal(elevatorData)
-			fmt.Println("ready for sending")
 			msg := network.UDPmessage{Type: network.MsgState, Data: data}
 			stateTxChannel <- msg
 		}

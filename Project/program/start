@@ -4,12 +4,22 @@ for i in "$@"
 do
 case $i in
     -p=*|--port=*)
-    PORT="${i#*=}"
+    PORT_T="${i#*=}"
+
+    ;;
+    -m=*|--multiple=*)
+    SIM_COUNT="${i#*=}"
 
     ;;
 esac
 done
-gnome-terminal -x sh -c "rdmd simulator/server/sim_server.d --port=$PORT"
-clear
-echo $PORT
-gnome-terminal -x sh -c "go run main.go -sim=true -sim_port=$PORT"
+for i in `seq 1 $SIM_COUNT`;
+do
+     PORT=$(( $PORT_T -1 + i))
+     ID="ELEVATOR_$i"
+     gnome-terminal -x sh -c "rdmd simulator/server/sim_server.d --port=$PORT"
+     clear
+     #echo $PORT
+     gnome-terminal -x sh -c "go run main.go -id=$ID -sim=true -sim_port=$PORT"
+
+done
