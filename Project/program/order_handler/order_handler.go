@@ -48,12 +48,14 @@ func Init(	localIp network.Ip,
 			targetFloorChannel chan<- int,
 			floorCompletedChannel <-chan int,
 			getStateChannel <-chan fsm.ElevatorData_t,
-			stateRxChannel <-chan network.UDPmessage) {
+			stateRxChannel <-chan network.UDPmessage,
+			livePeersChannel <-chan network.PeerStatus) {
 
 	var externalOrders orderList
 	var internalOrders orderList
 	var elevatorData fsm.ElevatorData_t
 	var allElevatorStates []fsm.ElevatorData_t
+	var livePeers network.PeerStatus
 //	orderChannel := make(chan orderList)
 	distributeOrderChannel := make(chan Order)
 
@@ -122,6 +124,21 @@ func Init(	localIp network.Ip,
 			}
 			if !stateExists {
 				allElevatorStates = append(allElevatorStates, state)
+			}
+			fmt.Println("States:", allElevatorStates)
+		case peers := <- livePeersChannel:
+			livePeers = peers
+
+			// Clean up state array when peer is disconnected
+			if len(livePeers.Lost) > 0 {
+				for i, storedPeer := range allElevatorStates {
+					for _, lostPeer := range livePeers.Lost {
+						fmt.Println("Lost peer", lostPeer)
+						if network.Ip(lostPeer) == storedPeer.Id {
+							allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+						}
+					}
+				}
 			}
 			fmt.Println("States:", allElevatorStates)
 		}

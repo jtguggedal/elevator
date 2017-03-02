@@ -14,14 +14,13 @@ import (
 func main() {
 	var id string
 	flag.StringVar(&id, "id", "", "ID of this peer")
-	simulatorPort := flag.Int("sim_port", 15657, "Port used for simulator communications")
+	simulatorPort := flag.Int("sim_port", 45657, "Port used for simulator communications")
 	simulator := flag.Bool("sim", false, "Run in simulator mode")
 	flag.Parse()
 	fmt.Println("Starting...")
 
 	UDPrxChannel := make(chan network.UDPmessage)
 	UDPtxChannel := make(chan network.UDPmessage)
-	peerStatusChannel := make(chan network.PeerStatus)
 	stateRxChannel := make(chan network.UDPmessage)
 	stateTxChannel := make(chan network.UDPmessage)
 	orderRxChannel := make(chan network.UDPmessage)
@@ -36,7 +35,7 @@ func main() {
 	floorCompletedChannel := make(chan int)
 	distributeStateChannel := make(chan fsm.ElevatorData_t)
 	getStateChannel := make(chan fsm.ElevatorData_t)
-	//livePeersChannel := make(chan []string)
+	peerStatusChannel := make(chan network.PeerStatus)
 
 	go network.UDPinit(	id,
 						ipChannel,
@@ -70,7 +69,8 @@ func main() {
 							targetFloorChannel,
 							floorCompletedChannel,
 							getStateChannel,
-							stateRxChannel)
+							stateRxChannel,
+							peerStatusChannel)
 
 
 	for {

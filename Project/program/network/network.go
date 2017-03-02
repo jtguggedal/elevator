@@ -57,11 +57,6 @@ func UDPinit(	id string,
 
 	// Our id can be anything. Here we pass it on the command line, using
 	//  `go run main.go -id=our_id`
-	//var id string
-//	var connectedPeers peers.PeerUpdate
-	/*flag.StringVar(&id, "id", "", "id of this peer")
-	flag.Parse()*/
-
 	if id == "" {
 		localIP, err := localip.LocalIP()
 		if err != nil {
@@ -73,7 +68,6 @@ func UDPinit(	id string,
 
 	ipChannel <- Ip(id)
 
-	//states := make([]fsm.ElevatorData, 0)
 
 	// We make a channel for receiving updates on the id's of the peers that are
 	//  alive on the network
@@ -99,17 +93,8 @@ func UDPinit(	id string,
 
 	for {
 		select {
-		case /*peers := */<-peerUpdateCh:
-		//	peerStatusChannel <- PeerStatus(peers)
-			//fmt.Printf("%02d:%02d:%02d.%03d - Peer update:\n", time.Now().Hour(), time.Now().Minute(), time.Now().Second(), time.Now().UnixNano()%1e6/1e3)
-		/*	if len(peers.New) > 0 {
-				fmt.Printf("  New node:\t\t%q\n", peers.New)
-			}
-			if len(peers.Lost) > 0 {
-				fmt.Printf("  Lost:\t\t%q\n", peers.Lost)
-			}
-			fmt.Printf("  Connected:\t%q\n\n", connectedPeers.Peers)*/
-			//peerStatusChannel <- PeerStatus(peers)
+		case peers := <-peerUpdateCh:
+			peerStatusChannel <- PeerStatus(peers)
 		case order := <-orderTxChannel:
 			txChannel <- order
 		case done := <-timerChan:
@@ -118,9 +103,6 @@ func UDPinit(	id string,
 			if start == true {
 				fmt.Println("Elevators started. Have a nice day.")
 			}
-		/*case state := <- stateTxChannel:
-			fmt.Println("State sent")
-			txChannel <- state*/
 		}
 	}
 

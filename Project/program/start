@@ -1,5 +1,15 @@
 #!/bin/bash
 
-gnome-terminal -x sh -c "rdmd simulator/server/sim_server.d"
+for i in "$@"
+do
+case $i in
+    -p=*|--port=*)
+    PORT="${i#*=}"
+
+    ;;
+esac
+done
+gnome-terminal -x sh -c "rdmd simulator/server/sim_server.d --port=$PORT"
 clear
-go run main.go -sim=true -id=1
+echo $PORT
+gnome-terminal -x sh -c "go run main.go -sim=true -sim_port=$PORT"
