@@ -4,9 +4,11 @@ import (
 	"./../driver"
 	"./../network"
 	"./../fsm"
+	// "./../order_cost"
 	"time"
 	"fmt"
 	"encoding/json"
+	"math"
 )
 
 const (
@@ -18,6 +20,14 @@ const (
 	orderInternal = 1
 	orderExternal = 2
 )
+
+const (
+	costIdle				= 2
+	costMovingSameDir		= 1
+	costMovingOpositeDir	= 6
+	costPerFloor			= 3
+)
+
 
 type orderDirection int
 type orderType int
@@ -39,7 +49,7 @@ func ReceiveOrder(orderRx chan Order) {
 }
 
 
-func Init(	localIp network.Ip,
+func Init(	localId network.Ip,
 			orderRx <-chan network.UDPmessage,
 			orderTx chan<- network.UDPmessage,
 			orderFinishedChannel chan network.UDPmessage,
@@ -49,16 +59,18 @@ func Init(	localIp network.Ip,
 			floorCompletedChannel <-chan int,
 			getStateChannel <-chan fsm.ElevatorData_t,
 			stateRxChannel <-chan network.UDPmessage,
-			livePeersChannel <-chan network.PeerStatus) {
+			livePeersChannel <-chan network.PeerStatus,
+			resendStateChannel chan<- bool) {
 
 	var externalOrders orderList
 	var internalOrders orderList
 	var elevatorData fsm.ElevatorData_t
 	var allElevatorStates []fsm.ElevatorData_t
-	var livePeers network.PeerStatus
-//	orderChannel := make(chan orderList)
-	distributeOrderChannel := make(chan Order)
+	//var livePeers network.PeerStatus
 
+	var singleElevator bool = true
+
+	distributeOrderChannel := make(chan Order)
 	newOrderChannel := make(chan bool)
 
 //	var targetFloor int
@@ -83,6 +95,16 @@ func Init(	localIp network.Ip,
 					externalOrders = addOrder(externalOrders, receivedOrder)
 					fmt.Println("External orders updated:", externalOrders)
 					newOrderChannel <- true
+
+					if singleElevator == true {
+						cost := orderCost(receivedOrder, allElevatorStates[0])
+						fmt.Println("Cost:", cost)
+					} else {
+						for _, elevator := range allElevatorStates {
+							cost := orderCost(receivedOrder, elevator)
+							fmt.Printf("Cost for %s: %d\n", elevator.Id, cost)
+						}
+					}
 				} else {
 					fmt.Println("External order already exists", receivedOrder)
 				}
@@ -100,7 +122,7 @@ func Init(	localIp network.Ip,
 					fmt.Println("Internal order already exists", order)
 				}
 			} else if order.Type == orderExternal {
-				order.Origin = localIp
+				order.Origin = localId
 				orderJson, _ := json.Marshal(order)
 				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
 				//fmt.Println("Order broadcasted" )
@@ -127,20 +149,29 @@ func Init(	localIp network.Ip,
 			}
 			fmt.Println("States:", allElevatorStates)
 		case peers := <- livePeersChannel:
-			livePeers = peers
 
 			// Clean up state array when peer is disconnected
-			if len(livePeers.Lost) > 0 {
+			if len(peers.Lost) > 0 {
 				for i, storedPeer := range allElevatorStates {
-					for _, lostPeer := range livePeers.Lost {
+					for _, lostPeer := range peers.Lost {
 						fmt.Println("Lost peer", lostPeer)
 						if network.Ip(lostPeer) == storedPeer.Id {
 							allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
 						}
 					}
 				}
+				fmt.Println("States:", allElevatorStates)
 			}
-			fmt.Println("States:", allElevatorStates)
+			// If a new node is added, it needs to get states from the others
+			if len(peers.New) > 0 {
+				resendStateChannel <- true
+			}
+			if len(peers.Peers) > 1 {
+				singleElevator = false
+			} else {
+				singleElevator = true
+			}
+
 		}
 	}
 }
@@ -183,6 +214,35 @@ func buttonEventListener(	buttonEventChannel <-chan driver.ButtonEvent,
 		}
 	}
 }
+
+
+
+func orderCost(o Order, e fsm.ElevatorData_t) int {
+	var cost int
+	distance := o.Floor - e.Floor
+
+	idle := e.State == fsm.Idle
+	movingSameDir := (int(o.Direction) == int(e.State)) && !idle
+	movingOpositeDir := !movingSameDir && !idle
+
+	//targetSameFloor := distance == 0
+	targetAbove := distance > 0
+	targetBelow := distance < 0
+	distance = int(math.Abs(float64(distance)))
+
+	if targetAbove  || targetBelow {
+		cost += distance * costPerFloor
+	}
+	if movingSameDir {
+		cost += costMovingSameDir
+	} else if movingOpositeDir {
+		cost += costMovingOpositeDir
+	} else if idle {
+		cost += costIdle
+	}
+	return cost
+}
+
 
 
 func prioritizeOrders(	newOrderSignal <-chan bool,

@@ -29,6 +29,7 @@ func main() {
 	currentFloorChannel := make(chan int)
 	buttonEventChannel := make(chan driver.ButtonEvent)
 	ipChannel := make(chan network.Ip)
+	resendStateChannel := make(chan bool)
 
 	floorReachedChannel := make(chan int)
 	targetFloorChannel := make(chan int)
@@ -58,7 +59,8 @@ func main() {
 	go fsm.Init(floorReachedChannel,
 				targetFloorChannel,
 				floorCompletedChannel,
-				distributeStateChannel)
+				distributeStateChannel,
+				resendStateChannel)
 
 	go order_handler.Init(	localIp,
 							orderRxChannel,
@@ -70,7 +72,8 @@ func main() {
 							floorCompletedChannel,
 							getStateChannel,
 							stateRxChannel,
-							peerStatusChannel)
+							peerStatusChannel,
+							resendStateChannel)
 
 
 	for {

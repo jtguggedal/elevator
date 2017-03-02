@@ -30,7 +30,8 @@ type ElevatorData_t struct {
 func Init(  floorSignalChannel <-chan int,
             newTargetFloorChannel <-chan int,
             floorCompletedChannel chan<- int,
-            distributeStateChannel chan<- ElevatorData_t) {
+            distributeStateChannel chan<- ElevatorData_t,
+            resendStateChannel <-chan bool) {
 
     var floor int
     var targetFloor int
@@ -57,6 +58,12 @@ func Init(  floorSignalChannel <-chan int,
         case elevatorData = <- stateChangedChannel:
             fmt.Println("New state:", elevatorData)
             distributeStateChannel <- elevatorData
+        case <- resendStateChannel:
+            go func() {
+                time.Sleep(3 * time.Second)
+                distributeStateChannel <- elevatorData
+            }()
+
         }
     }
 }

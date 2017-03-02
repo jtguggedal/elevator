@@ -1,10 +1,24 @@
 package order_cost
 
 import (
-	. "./../order_handler"
 	"./../fsm"
+	"./../network"
 	"math"
 )
+
+type orderType int
+
+type orderDirection int
+
+type Order struct {
+	Id			int
+	Type		orderType
+	Origin		network.Ip
+	Floor		int
+	Direction	orderDirection
+	AssignedTo	int
+	Done 		bool
+}
 
 const (
 	costIdle				= 2
@@ -15,43 +29,42 @@ const (
 
 
 func sortOrders(	peerUpdateChannel <-chan network.PeerStatus,
-					newOrderChannel <-chan,
-					doneOrderChannel <-chan) (Order) {
+					newOrderChannel <-chan Order,
+					doneOrderChannel <-chan Order)  {
 
-	var nodes []network.PeerStatus
-	
+	//var liveNodes []network.PeerStatus
+
 
 	for {
 		select {
-			case nodes = <- peerUpdateChannel:
-			case order := <- newOrderChannel:
-			case order := <- doneOrderChannel:
+			//case nodes := <- peerUpdateChannel:
+			//case order := <- newOrderChannel:
+			//case order := <- doneOrderChannel:
 
 		}
 	}
 }
 
 
-func orderCost(o Order, e fsm.ElevatorData_t) {
+func OrderCost(o Order, e fsm.ElevatorData_t) {
 	var cost int
 	distance := o.Floor - e.Floor
 
 	idle := e.State != fsm.Idle
-	movingSameDir := (o.Direction == e.State) && !idle
+	movingSameDir := (int(o.Direction) == int(e.State)) && !idle
 	movingOpositeDir := !movingSameDir && !idle
 
-	targetSameFloor := distance == 0
+	//targetSameFloor := distance == 0
 	targetAbove := distance > 0
 	targetBelow := distance < 0
-	distance = int(math.Abs(distance))
+	distance = int(math.Abs(float64(distance)))
 
-	cost = targetSameFLoor ? cost : movingSameDir
 	if targetAbove  || targetBelow {
 		cost += distance * costPerFloor
 	}
 	if movingSameDir {
 		cost += costMovingSameDir
-	} else if movingSameDir {
+	} else if movingOpositeDir {
 		cost += costMovingOpositeDir
 	} else if idle {
 		cost += costIdle
