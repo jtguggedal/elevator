@@ -56,7 +56,7 @@ func Init(  floorSignalChannel <-chan int,
             distributeStateChannel <- elevatorData
         case <- resendStateChannel:
             go func() {
-                time.Sleep(3 * time.Second)
+                time.Sleep(1 * time.Second)
                 distributeStateChannel <- elevatorData
             }()
 

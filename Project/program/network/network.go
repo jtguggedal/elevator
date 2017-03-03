@@ -1,23 +1,18 @@
 package network
 
 import (
-	//fsm "./../state_machine"
 	"./network/bcast"
 	"./network/localip"
 	"./network/peers"
-	//"./../order_handler"
-	//"flag"
 	"fmt"
-	//"net"
 	"os"
-	//"time"
 )
 
 const (
-	peerPort  = 32003
-	bcastPort = 33003
-	statePort = 33004
-	orderPort = 33005
+	peerPort  = 32151
+	bcastPort = 32152
+	statePort = 32153
+	orderPort = 32154
 )
 
 const (
@@ -93,21 +88,12 @@ func UDPinit(	id string,
 	go bcast.Receiver(statePort, stateRxChannel)
 	go bcast.Receiver(orderPort, orderDoneRxChannel)
 
-	timerChan := make(chan peers.PeerUpdate)
-	startChan := make(chan bool)
-
 	for {
 		select {
 		case peers := <-peerUpdateCh:
 			peerStatusChannel <- PeerStatus(peers)
 		case order := <-orderTxChannel:
 			txChannel <- order
-		case done := <-timerChan:
-			fmt.Printf("Connected nodes:    %q\n", done.Peers)
-		case start := <-startChan:
-			if start == true {
-				fmt.Println("Elevators started. Have a nice day.")
-			}
 		}
 	}
 

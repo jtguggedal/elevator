@@ -53,7 +53,7 @@ func Init(	localId network.Ip,
 			orderRx <-chan network.UDPmessage,
 			orderTx chan<- network.UDPmessage,
 			orderDonedRxChannel chan network.UDPmessage,
-			orderDonedTxChannel chan network.UDPmessage,
+			orderDoneTxChannel chan network.UDPmessage,
 			buttonEventChannel <-chan  driver.ButtonEvent,
 			currentFloorChannel <-chan int,
 			targetFloorChannel chan<- int,
@@ -65,9 +65,7 @@ func Init(	localId network.Ip,
 
 	var externalOrders orderList
 	var internalOrders orderList
-	//var elevatorData fsm.ElevatorData_t
 	var allElevatorStates []fsm.ElevatorData_t
-	//var livePeers network.PeerStatus
 
 	var singleElevator bool = true
 	var activeOrder Order
@@ -76,9 +74,6 @@ func Init(	localId network.Ip,
 	distributeOrderChannel := make(chan Order)
 	newOrderChannel := make(chan bool)
 
-//	var targetFloor int
-
-
 	go buttonEventListener(	buttonEventChannel,
 							distributeOrderChannel)
 
@@ -86,10 +81,9 @@ func Init(	localId network.Ip,
 						&externalOrders,
 						&internalOrders,
 						targetFloorChannel)
-	//go execute()
-
 	for {
 		select {
+		case <- currentFloorChannel:
 		case msg := <- orderRx:
 
 			// Order received via UDP
@@ -97,8 +91,6 @@ func Init(	localId network.Ip,
 			err := json.Unmarshal(msg.Data, &receivedOrder)
 			if err == nil {
 				if !checkIfOrderExists(externalOrders, receivedOrder) {
-					fmt.Println("External orders updated:", externalOrders)
-					newOrderChannel <- true
 
 					if singleElevator == true {
 						cost := orderCost(receivedOrder, allElevatorStates[0])
@@ -110,9 +102,10 @@ func Init(	localId network.Ip,
 							targetFloorChannel <- activeOrder.Floor
 						}
 						fmt.Println("Cost:", cost)
-						fmt.Printf("Order taken by %s:\t\t \tFloor: %d\t Cost: %d\n", localId, receivedOrder.Floor, cost)
-					} else {
-						// Firstly, indicate order with button light
+						fmt.Printf("Order taken by %s:\tFloor: %d\t Cost: %d\n", localId, receivedOrder.Floor, cost)
+					} else if singleElevator == false {
+
+						// Indicate order with button light
 						driver.SetButtonLamp(driver.ButtonType(receivedOrder.Direction), receivedOrder.Floor, 1)
 						cost := 0
 						lowestCost := 100000
@@ -127,12 +120,13 @@ func Init(	localId network.Ip,
 						}
 						receivedOrder.AssignedTo = assignTo
 						externalOrders = addOrder(externalOrders, receivedOrder)
-						fmt.Printf("Order assigned to %s:\t\t \tFloor: %d\t Cost: %d\n", assignTo, receivedOrder.Floor, cost)
+						fmt.Printf("Order assigned to %s:\tFloor: %d\t Cost: %d\n", assignTo, receivedOrder.Floor, cost)
 						if assignTo == localId {
 							activeOrder = receivedOrder
 							busy = true
 							targetFloorChannel <- activeOrder.Floor
 						}
+						fmt.Println("External orders updated:", externalOrders)
 					}
 				} else {
 					fmt.Println("External order already exists", receivedOrder)
@@ -159,17 +153,18 @@ func Init(	localId network.Ip,
 			for _, order := range externalOrders {
 				if (order.AssignedTo == localId) && (order.Floor == floor) && order.Direction == activeOrder.Direction {
 					order.Done = true
-					fmt.Println("DOOOOOOOOO")
-					externalOrders = removeDoneOrders(externalOrders, order)
+					externalOrders = orderCompleted(externalOrders, order)
+					fmt.Println("completed: ")
 					if !singleElevator {
 						orderJson, _ := json.Marshal(order)
-						orderDonedTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
+						orderDoneTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
 					}
 				}
 			}
-			fmt.Println("Remaining orders: ", externalOrders)
-			if len(externalOrders) > 0 {
+			fmt.Println("Remaining external orders: ", externalOrders)
+			if len(externalOrders) > 0 && externalOrders[0].AssignedTo == localId {
 				activeOrder = externalOrders[0]
+				fmt.Println(activeOrder)
 				targetFloorChannel <- activeOrder.Floor
 				busy = true
 			} else {
@@ -207,7 +202,7 @@ func Init(	localId network.Ip,
 				}
 			}
 			// If a new node is added, it needs to get states from the others
-			if len(peers.New) > 0 {
+			if len(peers.New) > 0 && peers.Peers[0] != string(localId) {
 				resendStateChannel <- true
 			}
 			if len(peers.Peers) > 1 {
@@ -277,7 +272,6 @@ func orderCost(o Order, e fsm.ElevatorData_t) int {
 	movingSameDir := (int(o.Direction) == int(e.State)) && !idle
 	movingOpositeDir := !movingSameDir && !idle
 
-	//targetSameFloor := distance == 0
 	targetAbove := distance > 0
 	targetBelow := distance < 0
 	distance = int(math.Abs(float64(distance)))
@@ -317,6 +311,12 @@ func addOrder(orders []Order, newOrder Order) []Order {
 	}
 	return orders
 }
+
+func orderCompleted(orders orderList, order Order) orderList {
+	driver.SetButtonLamp(driver.ButtonType(order.Direction), order.Floor, 0)
+	return removeDoneOrders(orders, order)
+}
+
 
 func removeDoneOrders(orders []Order, doneOrder Order) []Order {
 	for key, order := range orders {

@@ -10,7 +10,9 @@ package driver
 import "C"
 
 //import "fmt"
-import "time"
+import (
+	"time"	
+)
 
 type MotorDirection int
 type ButtonType int

@@ -52,17 +52,10 @@ func main() {
 	localIp := <- ipChannel
 
 
-	driver.ElevatorDriverInit(*simulator,
-			*simulatorPort,
-			buttonEventChannel,
-			floorReachedChannel)
-
-
-	go fsm.Init(floorReachedChannel,
-				targetFloorChannel,
-				floorCompletedChannel,
-				distributeStateChannel,
-				resendStateChannel)
+	driver.ElevatorDriverInit(	*simulator,
+								*simulatorPort,
+								buttonEventChannel,
+								floorReachedChannel)
 
 	go order_handler.Init(	localIp,
 							orderRxChannel,
@@ -78,17 +71,18 @@ func main() {
 							peerStatusChannel,
 							resendStateChannel)
 
+	go fsm.Init(floorReachedChannel,
+				targetFloorChannel,
+				floorCompletedChannel,
+				distributeStateChannel,
+				resendStateChannel)
+
 
 	for {
 		select {
-		//case msg := <- orderTx:
-		//	UDPtxChannel<- msg
-
-		// Route incoming UDP messages to the right module
 		case msg := <-UDPrxChannel:
 			switch msg.Type {
 			case network.MsgState:
-				stateRxChannel <- msg
 			case network.MsgNewOrder:
 				orderRxChannel <- msg
 			}
