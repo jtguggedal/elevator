@@ -4,6 +4,7 @@ import (
 	"./driver"
 	"./fsm"
 	"./network"
+	"./network/peers"
 	"./order_handler"
 	"fmt"
 	"flag"
@@ -35,18 +36,16 @@ func main() {
 	targetFloorChannel := make(chan int)
 	floorCompletedChannel := make(chan int)
 	distributeStateChannel := make(chan fsm.ElevatorData_t)
-	getStateChannel := make(chan fsm.ElevatorData_t)
-	peerStatusChannel := make(chan network.PeerStatus)
+	peerUpdateChannel := make(chan peers.PeerUpdate)
 
 	go network.UDPinit(	id,
 						ipChannel,
 						stateRxChannel,
 						stateTxChannel,
 						orderRxChannel,
-						orderTxChannel,
 						UDPrxChannel,
 						UDPtxChannel,
-						peerStatusChannel,
+						peerUpdateChannel,
 						orderDoneRxChannel,
 						orderDoneTxChannel)
 	localIp := <- ipChannel
@@ -57,8 +56,7 @@ func main() {
 								buttonEventChannel,
 								floorReachedChannel)
 
-	go order_handler.Init(	localIp,
-							orderRxChannel,
+	go order_handler.Init(	orderRxChannel,
 							orderTxChannel,
 							orderDoneRxChannel,
 							orderDoneTxChannel,
@@ -66,9 +64,8 @@ func main() {
 							currentFloorChannel,
 							targetFloorChannel,
 							floorCompletedChannel,
-							getStateChannel,
 							stateRxChannel,
-							peerStatusChannel,
+							peerUpdateChannel,
 							resendStateChannel)
 
 	go fsm.Init(floorReachedChannel,
@@ -80,6 +77,8 @@ func main() {
 
 	for {
 		select {
+		case msg := <-orderTxChannel:
+			UDPtxChannel <- msg
 		case msg := <-UDPrxChannel:
 			switch msg.Type {
 			case network.MsgState:
@@ -88,7 +87,6 @@ func main() {
 			}
 		case elevatorData := <- distributeStateChannel:
 			elevatorData.Id = localIp
-			getStateChannel <- elevatorData
 			data, _ := json.Marshal(elevatorData)
 			msg := network.UDPmessage{Type: network.MsgState, Data: data}
 			stateTxChannel <- msg

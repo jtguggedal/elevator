@@ -1,9 +1,9 @@
 package network
 
 import (
-	"./network/bcast"
-	"./network/localip"
-	"./network/peers"
+	"./bcast"
+	"./localip"
+	"./peers"
 	"fmt"
 	"os"
 )
@@ -41,20 +41,22 @@ type UDPmessage struct {
 	Data    []byte
 }
 
-func UDPinit(	id string,
+var id string
+
+func UDPinit(	receivedId string,
 				ipChannel chan<- Ip,
 				stateRxChannel,
 				stateTxChannel chan UDPmessage,
-				orderRxChannel,
-				orderTxChannel chan UDPmessage,
+				orderRxChannel chan UDPmessage,
 				rxChannel chan UDPmessage,
 				txChannel chan UDPmessage,
-				peerStatusChannel chan PeerStatus,
+				peerUpdateChannel chan peers.PeerUpdate,
 				orderDoneRxChannel chan UDPmessage,
 				orderDoneTxChannel chan UDPmessage) {
 
 	// Our id can be anything. Here we pass it on the command line, using
 	//  `go run main.go -id=our_id`
+	id = receivedId
 	if id == "" {
 		localIP, err := localip.LocalIP()
 		if err != nil {
@@ -67,15 +69,12 @@ func UDPinit(	id string,
 	ipChannel <- Ip(id)
 
 
-	// We make a channel for receiving updates on the id's of the peers that are
-	//  alive on the network
-	peerUpdateCh := make(chan peers.PeerUpdate)
 
 	// We can disable/enable the transmitter after it has been started.
 	// This could be used to signal that we are somehow "unavailable".
 	peerTxEnable := make(chan bool)
 	go peers.Transmitter(peerPort, id, peerTxEnable)
-	go peers.Receiver(peerPort, peerUpdateCh)
+	go peers.Receiver(peerPort, peerUpdateChannel)
 
 	// We make channels for sending and receiving our custom data types
 	// ... and start the transmitter/receiver pair on some port
@@ -88,13 +87,9 @@ func UDPinit(	id string,
 	go bcast.Receiver(statePort, stateRxChannel)
 	go bcast.Receiver(orderPort, orderDoneRxChannel)
 
-	for {
-		select {
-		case peers := <-peerUpdateCh:
-			peerStatusChannel <- PeerStatus(peers)
-		case order := <-orderTxChannel:
-			txChannel <- order
-		}
-	}
+}
 
+
+func GetLocalId() Ip {
+	return Ip(id)
 }

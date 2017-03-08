@@ -25,6 +25,11 @@ type ElevatorData_t struct {
     Floor   int
 }
 
+var elevatorData ElevatorData_t
+
+func GetElevatorData() ElevatorData_t {
+	return elevatorData
+}
 
 func Init(  floorSignalChannel <-chan int,
             newTargetFloorChannel <-chan int,
@@ -34,7 +39,6 @@ func Init(  floorSignalChannel <-chan int,
 
     var floor int
     var targetFloor int
-    var elevatorData ElevatorData_t
 
 
     currentFloorChannel := make(chan int)
@@ -69,36 +73,36 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
                     currentFloorChannel,
                     targetFloorChannel <-chan int,
                     floorCompletedChannel chan<- int) {
-    var e ElevatorData_t
-    e.State = Idle
-    stateChangedChannel <- e
+    var elevatorData ElevatorData_t
+    elevatorData.State = Idle
+    stateChangedChannel <- elevatorData
     targetFloor := targetFloorReached
     var direction driver.MotorDirection
     for {
         select {
-        case e.Floor = <- currentFloorChannel:
-            stateChangedChannel <- e
-            driver.SetFloorIndicator(e.Floor)
-            fmt.Println("Floor:", e.Floor)
+        case elevatorData.Floor = <- currentFloorChannel:
+            stateChangedChannel <- elevatorData
+            driver.SetFloorIndicator(elevatorData.Floor)
+            fmt.Println("Floor:", elevatorData.Floor)
         case targetFloor = <-targetFloorChannel:
-            stateChangedChannel <- e
+            stateChangedChannel <- elevatorData
             fmt.Println("New target floor:", targetFloor)
         default:
             // Nothing to see here...
         }
 
-        switch e.State {
+        switch elevatorData.State {
         case Idle:
             if targetFloor != targetFloorReached {
-                if e.Floor < targetFloor {
-                    e.State = MovingUp
-                    stateChangedChannel <- e
-                }  else if e.Floor > targetFloor {
-                    e.State = MovingDown
-                    stateChangedChannel <- e
-                } else if e.Floor == targetFloor {
-                    e.State = DoorOpen
-                    stateChangedChannel <- e
+                if elevatorData.Floor < targetFloor {
+                    elevatorData.State = MovingUp
+                    stateChangedChannel <- elevatorData
+                }  else if elevatorData.Floor > targetFloor {
+                    elevatorData.State = MovingDown
+                    stateChangedChannel <- elevatorData
+                } else if elevatorData.Floor == targetFloor {
+                    elevatorData.State = DoorOpen
+                    stateChangedChannel <- elevatorData
                 }
             }
 
@@ -109,12 +113,12 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
                 fmt.Println("State: Moving up")
             }
 
-            if e.Floor == targetFloor {
+            if elevatorData.Floor == targetFloor {
                 targetFloor = targetFloorReached
                 driver.SetMotorDirection(driver.DirectionStop)
                 direction = driver.DirectionStop
-                e.State = DoorOpen
-                stateChangedChannel <- e
+                elevatorData.State = DoorOpen
+                stateChangedChannel <- elevatorData
             }
 
         case MovingDown:
@@ -124,12 +128,12 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
                 fmt.Println("State: Moving down")
             }
 
-            if e.Floor == targetFloor {
+            if elevatorData.Floor == targetFloor {
                 targetFloor = targetFloorReached
                 driver.SetMotorDirection(driver.DirectionStop)
                 direction = driver.DirectionStop
-                e.State = DoorOpen
-                stateChangedChannel <- e
+                elevatorData.State = DoorOpen
+                stateChangedChannel <- elevatorData
             }
 
         case DoorOpen:
@@ -137,28 +141,29 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
             driver.SetDoorOpenLamp(1)
             fmt.Println("State: Door open")
             time.Sleep(doorOpenTime * time.Second)
-            floorCompletedChannel <- e.Floor
             driver.SetDoorOpenLamp(0)
             fmt.Println("Door closed")
 
-            if targetFloor != targetFloorReached {
-                if e.Floor < targetFloor {
-                    e.State = MovingUp
-                    stateChangedChannel <- e
-                }  else if e.Floor > targetFloor {
-                    e.State = MovingDown
-                    stateChangedChannel <- e
-                } else if e.Floor == targetFloor {
-                    e.State = DoorOpen
-                    stateChangedChannel <- e
+            if targetFloor != targetFloorReached  {
+                if elevatorData.Floor < targetFloor {
+                    elevatorData.State = MovingUp
+                    stateChangedChannel <- elevatorData
+                }  else if elevatorData.Floor > targetFloor {
+                    elevatorData.State = MovingDown
+                    stateChangedChannel <- elevatorData
+                } else if elevatorData.Floor == targetFloor {
+                    elevatorData.State = DoorOpen
+                    stateChangedChannel <- elevatorData
                 } else {
-                    e.State = Idle
-                    stateChangedChannel <- e
+                    elevatorData.State = Idle
+                    stateChangedChannel <- elevatorData
                 }
             } else {
-                e.State = Idle
-                stateChangedChannel <- e
+                elevatorData.State = Idle
+                stateChangedChannel <- elevatorData
             }
+
+            floorCompletedChannel <- elevatorData.Floor
         }
     }
 }
