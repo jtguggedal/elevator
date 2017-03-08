@@ -5,7 +5,6 @@ import (
 	"./../network/peers"
 	"./../network"
 	"./../fsm"
-	// "./../order_cost"
 	"time"
 	"fmt"
 	"encoding/json"
@@ -166,10 +165,20 @@ func Init(	orderRx <-chan network.UDPmessage,
 			allElevatorStates = updatePeerState(allElevatorStates, state)
 
 		case peers := <- peerUpdateChannel:
-			var newPeer bool
-			allElevatorStates, singleElevator, newPeer = updateLivePeers(peers, allElevatorStates)
-			if newPeer {
+			var newPeerFlag, lostPeerFlag bool
+			allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag = updateLivePeers(peers, allElevatorStates)
+			if newPeerFlag {
 				resendStateChannel <- true
+			}
+			if newPeerFlag || lostPeerFlag {
+				externalOrders = reassignOrders(externalOrders, allElevatorStates)
+				orderQueue = reassignOrders(externalOrders, allElevatorStates)
+				candidateOrder := getNextOrder(orderQueue)
+				if candidateOrder.Floor != -1 && !busy {
+					activeOrder = candidateOrder
+					busy = true
+					targetFloorChannel <- activeOrder.Floor
+				}
 			}
 
 		case orderMsg := <- orderDonedRxChannel:
@@ -258,10 +267,18 @@ func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) (network.I
 	return assignTo
 }
 
+func reassignOrders(orders orderList, allElevatorStates []fsm.ElevatorData_t) (orderList) {
+	for _, order  := range orders {
+		order.AssignedTo = assignOrder(allElevatorStates, order)
+	}
+	fmt.Println("Orders reassigned")
+	return orders
+}
 
 func updateLivePeers(	peers peers.PeerUpdate,
-	 					allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool) {
+	 					allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
 	newPeer := len(peers.New) > 0 && peers.Peers[0] != string(localId)
+	lostPeer := len(peers.Lost) > 0
 	for i, storedPeer := range allElevatorStates {
 		for _, lostPeer := range peers.Lost {
 			fmt.Println("Lost peer", lostPeer)
@@ -271,7 +288,7 @@ func updateLivePeers(	peers peers.PeerUpdate,
 		}
 	}
 	singleElevator := len(peers.Peers) == 1
-	return allElevatorStates, singleElevator, newPeer
+	return allElevatorStates, singleElevator, newPeer, lostPeer
 }
 
 
