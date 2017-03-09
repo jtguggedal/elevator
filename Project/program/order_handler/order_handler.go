@@ -188,7 +188,9 @@ func Init(	orderRx <-chan network.UDPmessage,
 			}
 			if newPeerFlag || lostPeerFlag {
 				externalOrders = reassignOrders(externalOrders, allElevatorStates)
+				fmt.Println("Reassigned, new ds:", externalOrders)
 				candidateOrder := getNextOrder(externalOrders, heading)
+				fmt.Println("Candidate order", candidateOrder)
 				if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
 					activeOrder = candidateOrder
 					heading = getHeading(activeOrder)
@@ -298,18 +300,21 @@ func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) (network.I
 }
 
 func reassignOrders(orders orderList, allElevatorStates []fsm.ElevatorData_t) (orderList) {
-	for _, order  := range orders {
-		order.AssignedTo = assignOrder(allElevatorStates, order)
+	fmt.Println("Incoming for reassignmnet", orders, allElevatorStates)
+	for i, order  := range orders {
+		orders[i].AssignedTo = assignOrder(allElevatorStates, order)
+		fmt.Println("Reassigned to elevator", orders[i].AssignedTo)
 	}
-	fmt.Println("Orders reassigned")
+	fmt.Println("Orders reassigned", orders)
 	return orders
 }
 
 
 func updateLivePeers(	peers peers.PeerUpdate,
 	 					allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
-	newPeer := len(peers.New) > 0 && peers.Peers[0] != string(localId)
+	newPeer := len(peers.New) > 0
 	lostPeer := len(peers.Lost) > 0
+	fmt.Println("Lost peers", len(peers.Lost) > 0, peers.Lost)
 	for i, storedPeer := range allElevatorStates {
 		for _, lostPeer := range peers.Lost {
 			fmt.Println("Lost peer", lostPeer)
@@ -318,6 +323,7 @@ func updateLivePeers(	peers peers.PeerUpdate,
 			}
 		}
 	}
+	fmt.Println("Connected peers:", peers.Peers, allElevatorStates)
 	singleElevator := len(peers.Peers) == 1
 	return allElevatorStates, singleElevator, newPeer, lostPeer
 }
@@ -392,7 +398,7 @@ func getNextOrder(orders orderList, heading int) (Order) {
 		}
 	}
 	for _, order := range orders {
-		if isOrderOnTheWay(order, nextOrder, heading) {
+		if isOrderOnTheWay(order, nextOrder, heading) && order.AssignedTo == localId {
 			nextOrder = order
 		}
 	}
