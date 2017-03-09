@@ -44,7 +44,6 @@ type UDPmessage struct {
 var id string
 
 func UDPinit(	receivedId string,
-				ipChannel chan<- Ip,
 				stateRxChannel,
 				stateTxChannel chan UDPmessage,
 				orderRxChannel chan UDPmessage,
@@ -65,9 +64,6 @@ func UDPinit(	receivedId string,
 		}
 		id = fmt.Sprintf("peer-%s-%d", localIP, os.Getpid())
 	}
-
-	ipChannel <- Ip(id)
-
 
 
 	// We can disable/enable the transmitter after it has been started.

@@ -14,6 +14,7 @@ import (
 const (
 	directionUp		= driver.ButtonExternalUp
 	directionDown	= driver.ButtonExternalDown
+	directionNone 	= 3
 )
 
 const (
@@ -26,7 +27,10 @@ const (
 	costMovingSameDir		= 1
 	costMovingOpositeDir	= 6
 	costPerFloor			= 3
+    costPerOrderDepth       = 10
 )
+
+const orderResendCount	= 3
 
 
 type orderDirection int
@@ -45,13 +49,13 @@ type Order struct {
 type orderList []Order
 
 var localId network.Ip
+var localElevatorData fsm.ElevatorData_t
 
 func Init(	orderRx <-chan network.UDPmessage,
 			orderTx chan<- network.UDPmessage,
-			orderDonedRxChannel <-chan network.UDPmessage,
+			orderDoneRxChannel <-chan network.UDPmessage,
 			orderDoneTxChannel chan<- network.UDPmessage,
 			buttonEventChannel <-chan  driver.ButtonEvent,
-			currentFloorChannel <-chan int,
 			targetFloorChannel chan<- int,
 			floorCompletedChannel <-chan int,
 			stateRxChannel <-chan network.UDPmessage,
@@ -60,23 +64,23 @@ func Init(	orderRx <-chan network.UDPmessage,
 
 	var externalOrders orderList
 	var internalOrders orderList
-	var orderQueue orderList
 	var allElevatorStates []fsm.ElevatorData_t
-
 	var singleElevator bool = true
-	busy := false
+    handlingOrder := false
 	var activeOrder Order
-
-	localId := network.GetLocalId()
+	heading := directionNone
 
 	distributeOrderChannel := make(chan Order)
+
+	localId = network.GetLocalId()
+	localElevatorData = fsm.GetElevatorData()
+
 
 	go buttonEventListener(	buttonEventChannel,
 							distributeOrderChannel)
 
 	for {
 		select {
-		case <- currentFloorChannel:
 		case msg := <- orderRx:
 
 			// Order received via UDP
@@ -84,31 +88,19 @@ func Init(	orderRx <-chan network.UDPmessage,
 			err := json.Unmarshal(msg.Data, &receivedOrder)
 			if err == nil {
 				if !orderExists(externalOrders, receivedOrder) {
-					if singleElevator == true {
-						receivedOrder.AssignedTo = localId
-						externalOrders = addOrder(externalOrders, receivedOrder)
-						orderQueue = addOrder(orderQueue, receivedOrder)
-						candidateOrder := getNextOrder(orderQueue)
-						if candidateOrder.Floor != -1 && !busy {
-							activeOrder = candidateOrder
-							busy = true
-							targetFloorChannel <- activeOrder.Floor
-						}
-					} else if singleElevator == false {
-						driver.SetButtonLamp(driver.ButtonType(receivedOrder.Direction), receivedOrder.Floor, 1)
-						receivedOrder.AssignedTo = assignOrder(allElevatorStates, receivedOrder)
-						externalOrders = addOrder(externalOrders, receivedOrder)
-						fmt.Printf("Order assigned to %s:\tFloor: %d\n", receivedOrder.AssignedTo, receivedOrder.Floor)
-						if receivedOrder.AssignedTo == localId {
-							orderQueue = addOrder(orderQueue, receivedOrder)
-							activeOrder = getNextOrder(orderQueue)
-							if activeOrder.Floor != -1 && !busy {
-								busy = true
-								targetFloorChannel <- activeOrder.Floor
-							}
-						}
-						fmt.Println("External orders updated:", externalOrders)
-					}
+                    driver.SetButtonLamp(driver.ButtonType(receivedOrder.Direction), receivedOrder.Floor, 1)
+                    receivedOrder.AssignedTo = assignOrder(allElevatorStates, receivedOrder)
+                    externalOrders = addOrder(externalOrders, receivedOrder)
+					fmt.Println("External orders updated:", externalOrders)
+                    fmt.Printf("Order assigned to %s:\tFloor: %d\n", receivedOrder.AssignedTo, receivedOrder.Floor)
+                    if receivedOrder.AssignedTo == localId {
+                        if !handlingOrder {
+                            activeOrder = getNextOrder(externalOrders, heading)
+                            handlingOrder = true
+                            heading = getHeading(activeOrder)
+                            targetFloorChannel <- activeOrder.Floor
+                        }
+                    }
 				} else {
 					fmt.Println("External order already exists", receivedOrder)
 				}
@@ -120,44 +112,68 @@ func Init(	orderRx <-chan network.UDPmessage,
 			switch  order.Type {
 			case orderInternal:
 				if !orderExists(internalOrders, order) {
-					internalOrders = addOrder(internalOrders, order)
-					orderQueue = addOrder(orderQueue, order)
-					fmt.Println("Internal orders updated:", internalOrders)
-					candidateOrder := getNextOrder(orderQueue)
-					if candidateOrder.Floor != -1 && !busy {
-						activeOrder = candidateOrder
-						busy = true
-						targetFloorChannel <- activeOrder.Floor
-					}
+                    if (int(activeOrder.Direction) != getHeading(order)) {
+                        driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 0)
+                    } else {
+                        internalOrders = addOrder(internalOrders, order)
+                        if isOrderOnTheWay(order, activeOrder, heading) {
+                            activeOrder = order
+                            heading = getHeading(activeOrder)
+                            targetFloorChannel <- activeOrder.Floor
+                        }
+                    }
+
 				} else {
 					fmt.Println("Internal order already exists", order)
 				}
 
 			case orderExternal:
-				order.Origin = localId
-				orderJson, _ := json.Marshal(order)
-				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+                order.Origin = localId
+                if singleElevator {
+                    externalOrders = addOrder(externalOrders, order)
+                    if !handlingOrder || isOrderOnTheWay(order, activeOrder, heading) {
+                        handlingOrder = true
+                        activeOrder = order
+                        heading = getHeading(activeOrder)
+                        targetFloorChannel <- activeOrder.Floor
+                    } else {
+                        // No action, order is queued
+                    }
+                } else {
+                    orderJson, _ := json.Marshal(order)
+    				orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+                }
 			}
 
 		case floor := <- floorCompletedChannel:
 			if floor == activeOrder.Floor {
-				busy = false
 				activeOrder.Done = true
-				orderQueue = orderCompleted(orderQueue, activeOrder)
 				if activeOrder.Type == orderInternal {
-					removeDoneOrders(internalOrders, activeOrder)
+					internalOrders = orderCompleted(internalOrders, activeOrder)
+				} else if activeOrder.Type == orderExternal {
+					externalOrders = orderCompleted(externalOrders, activeOrder)
 				}
 				if !singleElevator {
 					orderJson, _ := json.Marshal(activeOrder)
 					orderDoneTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
 				}
+				if len(internalOrders) > 0 {
+					activeOrder = getNextOrder(internalOrders, heading)
+				} else {
+                    activeOrder = getNextOrder(externalOrders, heading)
+                    if activeOrder.Floor == -1 {
+                        handlingOrder = false
+                    }
+				}
 			}
-			activeOrder = getNextOrder(orderQueue)
-			if activeOrder.Floor != -1 && !busy {
-				busy = true
+			if activeOrder.Floor != -1 {
 				fmt.Println("Next order", activeOrder)
+                heading = getHeading(activeOrder)
+                handlingOrder = true
 				targetFloorChannel <- activeOrder.Floor
-			}
+			} else {
+                handlingOrder = false
+            }
 
 		case stateJson := <- stateRxChannel:
 			var state fsm.ElevatorData_t
@@ -172,16 +188,18 @@ func Init(	orderRx <-chan network.UDPmessage,
 			}
 			if newPeerFlag || lostPeerFlag {
 				externalOrders = reassignOrders(externalOrders, allElevatorStates)
-				orderQueue = reassignOrders(externalOrders, allElevatorStates)
-				candidateOrder := getNextOrder(orderQueue)
-				if candidateOrder.Floor != -1 && !busy {
+				candidateOrder := getNextOrder(externalOrders, heading)
+				if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
 					activeOrder = candidateOrder
-					busy = true
+					heading = getHeading(activeOrder)
+					handlingOrder = true
 					targetFloorChannel <- activeOrder.Floor
+				} else {
+					//
 				}
 			}
 
-		case orderMsg := <- orderDonedRxChannel:
+		case orderMsg := <- orderDoneRxChannel:
 			var order Order
 			jsonToStruct(orderMsg.Data, &order)
 			externalOrders = orderCompleted(externalOrders, order)
@@ -216,7 +234,8 @@ func buttonEventListener(	buttonEventChannel <-chan driver.ButtonEvent,
 				fmt.Println("Internal button event: go to floor", buttonEvent.Floor)
 				distributeOrderChannel <- Order{Id: getOrderId(),
 												Type: orderInternal,
-												Floor: buttonEvent.Floor}
+												Floor: buttonEvent.Floor,
+                                                AssignedTo: localId}
 			}
 		}
 	}
@@ -224,7 +243,7 @@ func buttonEventListener(	buttonEventChannel <-chan driver.ButtonEvent,
 
 
 
-func orderCost(o Order, e fsm.ElevatorData_t) int {
+func orderCost(orders orderList, o Order, e fsm.ElevatorData_t) int {
 	var cost int
 	distance := o.Floor - e.Floor
 
@@ -246,6 +265,17 @@ func orderCost(o Order, e fsm.ElevatorData_t) int {
 	} else if idle {
 		cost += costIdle
 	}
+
+    if o.Type == orderExternal {
+        orderDepth := 0
+        for _, ord := range orders {
+            if ord.AssignedTo == e.Id {
+                orderDepth += 1
+            }
+        }
+        cost += orderDepth * costPerOrderDepth
+    }
+
 	return cost
 }
 
@@ -253,14 +283,14 @@ func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) (network.I
 	cost := 0
 	lowestCost := 100000
 	var assignTo network.Ip
+	order.AssignedTo = ""
 	for _, elevator := range allElevatorStates {
-		cost = orderCost(order, elevator)
+		cost = orderCost(orderList{}, order, elevator)
 		fmt.Printf("Cost for %s: %d\n", elevator.Id, cost)
 		if cost < lowestCost {
 			lowestCost = cost
 			assignTo = elevator.Id
 		} else if cost == lowestCost && elevator.Id > assignTo {
-			fmt.Println("Assigned to and new", elevator.Id, assignTo)
 			assignTo = elevator.Id
 		}
 	}
@@ -274,6 +304,7 @@ func reassignOrders(orders orderList, allElevatorStates []fsm.ElevatorData_t) (o
 	fmt.Println("Orders reassigned")
 	return orders
 }
+
 
 func updateLivePeers(	peers peers.PeerUpdate,
 	 					allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
@@ -308,31 +339,46 @@ func updatePeerState(	allElevatorStates []fsm.ElevatorData_t,
 }
 
 
-func isOrderOnTheWay(order, activeOrder Order) (bool) {
+func isOrderOnTheWay(order, activeOrder Order, heading int) (bool) {
 	elevatorState := fsm.GetElevatorData()
-	if (elevatorState.Floor > order.Floor) && (order.Floor > activeOrder.Floor) {
+	if (elevatorState.Floor > order.Floor) && (order.Floor > activeOrder.Floor) && (activeOrder.Direction == order.Direction) {
 		return true
-	} else if elevatorState.Floor < order.Floor && order.Floor < activeOrder.Floor {
+	} else if elevatorState.Floor < order.Floor && order.Floor < activeOrder.Floor && (activeOrder.Direction == order.Direction) {
 		return true
 	}
 	return false
 }
 
-func getNextOrder(orders orderList) (Order) {
+func getHeading(order Order) (int){
+	currentFloor := fsm.GetElevatorData().Floor
+	diff := currentFloor - order.Floor
+	if diff == 0 {
+		return directionNone
+	} else if diff < 0 {
+		return directionUp
+	}
+	return directionDown
+}
+
+func getNextOrder(orders orderList, heading int) (Order) {
 	if len(orders) == 0 {
 		return Order{Floor: -1}
 	}
 	oldestEntryTime := int(10e15)
 	var nextOrder Order
-	//var orderDir orderDirection
 	var internal bool
 	nextOrder.Floor = -1
+	lowestCost := 1000000
+	elevatorData := fsm.GetElevatorData()
 
 	// Serving internal orders first
 	for _, order := range orders {
 		if order.Type == orderInternal {
-			nextOrder = order
-			internal = true
+			cost := orderCost(orders, order, elevatorData)
+			if cost < lowestCost {
+				nextOrder = order
+				internal = true
+			}
 		}
 	}
 	if internal {
@@ -340,13 +386,13 @@ func getNextOrder(orders orderList) (Order) {
 	}
 
 	for _, order := range orders {
-		if order.Id < oldestEntryTime {
+		if order.Id < oldestEntryTime && order.AssignedTo == localId {
 			oldestEntryTime = order.Id
 			nextOrder = order
 		}
 	}
 	for _, order := range orders {
-		if isOrderOnTheWay(order, nextOrder) {
+		if isOrderOnTheWay(order, nextOrder, heading) {
 			nextOrder = order
 		}
 	}

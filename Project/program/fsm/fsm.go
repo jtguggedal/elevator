@@ -10,14 +10,14 @@ import (
 type state_t int
 
 const (
-    Idle state_t = 0
-    MovingUp state_t = state_t(driver.DirectionUp)
-    MovingDown state_t = state_t(driver.DirectionDown)
-    DoorOpen state_t = 3
+    Idle state_t        = 0
+    MovingUp state_t    = state_t(driver.DirectionUp)
+    MovingDown state_t  = state_t(driver.DirectionDown)
+    DoorOpen state_t    = 3
 )
 
-const doorOpenTime = 3
-const targetFloorReached = -1
+const doorOpenTime          = 5
+const targetFloorReached    = -1
 
 type ElevatorData_t struct {
     Id      network.Ip
@@ -60,7 +60,7 @@ func Init(  floorSignalChannel <-chan int,
             distributeStateChannel <- elevatorData
         case <- resendStateChannel:
             go func() {
-                time.Sleep(1 * time.Second)
+                time.Sleep(2 * time.Second)
                 distributeStateChannel <- elevatorData
             }()
 
@@ -89,6 +89,7 @@ func stateHandler(  stateChangedChannel chan<- ElevatorData_t,
             fmt.Println("New target floor:", targetFloor)
         default:
             // Nothing to see here...
+            time.Sleep(300*time.Millisecond)
         }
 
         switch elevatorData.State {
