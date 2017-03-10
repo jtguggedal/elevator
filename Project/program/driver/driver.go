@@ -11,7 +11,7 @@ import "C"
 
 //import "fmt"
 import (
-	"time"	
+	"time"
 )
 
 type MotorDirection int
@@ -20,13 +20,13 @@ type ButtonType int
 const (
 	DirectionDown MotorDirection = -1
 	DirectionStop MotorDirection = 0
-	DirectionUp   MotorDirection= 1
+	DirectionUp   MotorDirection = 1
 )
 
 const (
-	ButtonExternalUp   		= 0
-	ButtonExternalDown 		= 1
-	ButtonInternalOrder   	= 2
+	ButtonExternalUp    = 0
+	ButtonExternalDown  = 1
+	ButtonInternalOrder = 2
 )
 
 const (
@@ -35,24 +35,23 @@ const (
 )
 
 type ButtonEvent struct {
-	Type 	ButtonType
-	Floor  	int
-	Status 	int
+	Type   ButtonType
+	Floor  int
+	Status int
 }
 
 func ElevatorDriverInit(simulator bool,
-		simulatorPort int,
-		buttonEventChannel chan<- ButtonEvent,
-		floorEventChannel chan<- int) {
+	simulatorPort int,
+	buttonEventChannel chan<- ButtonEvent,
+	floorEventChannel chan<- int) {
 	if simulator {
 		C.elev_init(C.ET_Simulation, C.int(simulatorPort))
 	} else {
 		C.elev_init(C.ET_Comedi, C.int(simulatorPort))
 	}
 
-
-	SetStopLamp(1)
-	SetDoorOpenLamp(1)
+	SetStopLamp(0)
+	SetDoorOpenLamp(0)
 	SetMotorDirection(DirectionDown)
 
 	for GetFloorSensorSignal() == -1 {
@@ -63,10 +62,9 @@ func ElevatorDriverInit(simulator bool,
 }
 
 // Function for enabling event listener for elevator and button events
-// TODO: call this from init function?
 func eventListener(
-		buttonEventChannel chan<- ButtonEvent,
-		floorEventChannel chan<- int) {
+	buttonEventChannel chan<- ButtonEvent,
+	floorEventChannel chan<- int) {
 
 	prevFloorSignal := -2
 	var currentFloorSignal int
@@ -85,7 +83,7 @@ func eventListener(
 				if GetButtonSignal(button, floor) != 0 {
 					buttonEventChannel <- ButtonEvent{
 						Floor:  floor,
-						Type: ButtonType(button),
+						Type:   ButtonType(button),
 						Status: GetButtonSignal(button, floor)}
 					time.Sleep(500 * time.Millisecond)
 				}
