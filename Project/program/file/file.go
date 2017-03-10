@@ -19,6 +19,16 @@ func SaveToFile(data interface{}) {
 	file.Close()
 }
 
-func ReadFromFile() {
-
+func ReadFromFile(data interface{}) (interface{}, bool) {
+	file, err := os.Open("internalOrdersBackup.json")
+	buf := make([]byte, 1024)
+	n, err := file.Read(buf)
+	if err != nil {
+		fmt.Println("Error reading from file:", err)
+	}
+	err = json.Unmarshal(buf[:n], &data)
+	if err != nil {
+		fmt.Println("Error decoding JSON:", err)
+	}
+	return data, err == nil
 }

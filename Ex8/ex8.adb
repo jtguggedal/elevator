@@ -81,7 +81,7 @@ procedure ex8 is
         loop
             select
             Manager.Wait_Until_Aborted;
-            Put_Line("Worker" & Integer'Image(Initial) & " performing error recovery");
+            Put_Line("  ***  Worker" & Integer'Image(Initial) & " performing error recovery");
 
             Num := Prev;
             Num := Num + 5;
@@ -102,7 +102,7 @@ procedure ex8 is
             Manager.Finished;
         end select;
 
-        Put_Line("Worker" & Integer'Image(Initial) & " committing" & Integer'Image(Num)); 
+        Put_Line("  Worker" & Integer'Image(Initial) & " committing" & Integer'Image(Num)); 
             Prev := Num;
             delay 0.5;
 
@@ -111,9 +111,9 @@ procedure ex8 is
 
     Manager : aliased Transaction_Manager (3);
 
-    Worker_1 : Transaction_Worker (0, Manager'Access);
-    Worker_2 : Transaction_Worker (1, Manager'Access);
-    Worker_3 : Transaction_Worker (2, Manager'Access);
+    Worker_1 : Transaction_Worker (1, Manager'Access);
+    Worker_2 : Transaction_Worker (2, Manager'Access);
+    Worker_3 : Transaction_Worker (3, Manager'Access);
 
 begin
     Reset(Gen); -- Seed the random number generator
