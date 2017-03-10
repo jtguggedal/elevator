@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"./../driver"
+	"./../file"
 	"./../fsm"
 	"./../network"
 	"./../network/peers"
@@ -26,7 +27,7 @@ const (
 const (
 	costIdle             = 2
 	costMovingSameDir    = 1
-	costMovingOpositeDir = 6
+	costMovingOpositeDir = 10
 	costPerFloor         = 3
 	costPerOrderDepth    = 10
 )
@@ -115,7 +116,9 @@ func Init(orderRx <-chan network.UDPmessage,
 				if !orderExists(internalOrders, order) {
 					if int(activeOrder.Direction) == getHeading(order) || activeOrder.Floor == -1 {
 						internalOrders = addOrder(internalOrders, order)
-						if !handlingOrder {
+						file.SaveToFile(internalOrders)
+						fmt.Println(isOrderOnTheWay(order, activeOrder))
+						if activeOrder.Floor == -1 || isOrderOnTheWay(order, activeOrder) {
 							activeOrder = order
 							heading = getHeading(activeOrder)
 							targetFloorChannel <- activeOrder.Floor
@@ -151,6 +154,7 @@ func Init(orderRx <-chan network.UDPmessage,
 				activeOrder.Done = true
 				if activeOrder.Type == orderInternal {
 					internalOrders = orderCompleted(internalOrders, activeOrder)
+					file.SaveToFile(internalOrders)
 				} else if activeOrder.Type == orderExternal {
 					externalOrders = orderCompleted(externalOrders, activeOrder)
 				}
@@ -278,7 +282,7 @@ func orderCost(orders orderList, o Order, e fsm.ElevatorData_t) int {
 		}
 		cost += orderDepth * costPerOrderDepth
 	}
-
+	fmt.Println("Order cost:", cost, o)
 	return cost
 }
 
@@ -378,6 +382,7 @@ func getNextOrder(orders orderList, heading int) Order {
 		if order.Type == orderInternal {
 			cost := orderCost(orders, order, elevatorData)
 			if cost < lowestCost {
+				lowestCost = cost
 				nextOrder = order
 				internal = true
 			}
