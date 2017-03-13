@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"./../driver"
-	"./../file"
+	"./../backup"
 	"./../fsm"
 	"./../network"
 	"./../network/peers"
@@ -72,6 +72,7 @@ func Init(orderRx <-chan network.UDPmessage,
 	activeOrder.Floor = -1
 	heading := directionNone
 
+
 	distributeOrderChannel := make(chan Order)
 
 	localId = network.GetLocalId()
@@ -79,6 +80,19 @@ func Init(orderRx <-chan network.UDPmessage,
 
 	go buttonEventListener(buttonEventChannel,
 		distributeOrderChannel)
+
+
+	// Import remaining queue from backup file
+	backup.ReadFromFile(&internalOrders)
+	if len(internalOrders) > 0 {
+		fmt.Println("Imported orders from backup:", internalOrders)
+		for _, order := range internalOrders {
+			driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 1)
+		}
+		activeOrder = getNextOrder(internalOrders, heading)
+		heading = getHeading(activeOrder)
+		targetFloorChannel <- activeOrder.Floor
+	}
 
 	// Goroutine that continuosly resends external orders until they are done
 	go func() {
@@ -131,7 +145,7 @@ func Init(orderRx <-chan network.UDPmessage,
 				if !orderExists(internalOrders, order) {
 					if int(activeOrder.Direction) == getHeading(order) || activeOrder.Floor == -1 {
 						internalOrders = addOrder(internalOrders, order)
-						file.SaveToFile(internalOrders)
+						backup.SaveToFile(internalOrders)
 						fmt.Println(isOrderOnTheWay(order, activeOrder))
 						if activeOrder.Floor == -1 || isOrderOnTheWay(order, activeOrder) {
 							activeOrder = order
@@ -169,7 +183,7 @@ func Init(orderRx <-chan network.UDPmessage,
 				activeOrder.Done = true
 				if activeOrder.Type == orderInternal {
 					internalOrders = orderCompleted(internalOrders, activeOrder)
-					file.SaveToFile(internalOrders)
+					backup.SaveToFile(internalOrders)
 				} else if activeOrder.Type == orderExternal {
 					externalOrders = orderCompleted(externalOrders, activeOrder)
 				}

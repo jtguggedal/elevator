@@ -1,4 +1,4 @@
-package file
+package backup
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ func SaveToFile(data interface{}) {
 	file.Close()
 }
 
-func ReadFromFile(data interface{}) (interface{}, bool) {
+func ReadFromFile(data interface{}) {
 	file, err := os.Open("internalOrdersBackup.json")
 	buf := make([]byte, 1024)
 	n, err := file.Read(buf)
@@ -30,5 +30,4 @@ func ReadFromFile(data interface{}) (interface{}, bool) {
 	if err != nil {
 		fmt.Println("Error decoding JSON:", err)
 	}
-	return data, err == nil
 }
