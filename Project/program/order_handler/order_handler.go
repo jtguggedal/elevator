@@ -32,7 +32,7 @@ const (
 	costPerOrderDepth    = 10
 )
 
-const orderResendCount = 3
+const orderResendInterval = 300 * time.Millisecond
 
 type orderDirection int
 type orderType int
@@ -79,6 +79,21 @@ func Init(orderRx <-chan network.UDPmessage,
 
 	go buttonEventListener(buttonEventChannel,
 		distributeOrderChannel)
+
+	// Goroutine that continuosly resends external orders until they are done
+	go func() {
+		for {
+			if len(externalOrders) > 0 {
+				for _, order := range externalOrders {
+					if order.Origin == localId && order.Done != true {
+						orderJson, _ := json.Marshal(order)
+						orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+					}
+				}
+			}
+			time.Sleep(orderResendInterval)
+		}
+	}()
 
 	for {
 		select {
@@ -324,7 +339,7 @@ func updateLivePeers(peers peers.PeerUpdate,
 		for i, storedPeer := range allElevatorStates {
 			for _, lostPeer := range peers.Lost {
 				fmt.Println("Lost peer", lostPeer)
-				if storedPeer.Id == "" || network.Ip(lostPeer) == storedPeer.Id {
+				if network.Ip(lostPeer) == storedPeer.Id  {
 					allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
 				}
 			}
