@@ -36,8 +36,7 @@ func GetElevatorData() ElevatorData_t {
 func Init(floorSignalChannel <-chan int,
 	newTargetFloorChannel <-chan int,
 	floorCompletedChannel chan<- int,
-	distributeStateChannel chan<- ElevatorData_t,
-	resendStateChannel <-chan bool) {
+	distributeStateChannel chan<- ElevatorData_t) {
 
 	var floor int
 	var targetFloor int
@@ -46,6 +45,7 @@ func Init(floorSignalChannel <-chan int,
 	targetFloorChannel := make(chan int)
 	stateChangedChannel := make(chan ElevatorData_t)
 
+	// The state handler is the goroutine that holds the state machine of the elevator
 	go stateHandler(stateChangedChannel, currentFloorChannel, targetFloorChannel, floorCompletedChannel)
 
 	for {
@@ -59,12 +59,6 @@ func Init(floorSignalChannel <-chan int,
 			targetFloorChannel <- targetFloor
 		case elevatorData = <-stateChangedChannel:
 			distributeStateChannel <- elevatorData
-		case <-resendStateChannel:
-			go func() {
-				time.Sleep(1 * time.Second)
-				distributeStateChannel <- elevatorData
-			}()
-
 		}
 	}
 }
@@ -187,7 +181,7 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 	}
 }
 
-
+// Function to update state of other elevators
 func UpdatePeerState(	allElevatorStates []ElevatorData_t,
 						state ElevatorData_t) []ElevatorData_t {
 	var stateExists bool

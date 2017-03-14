@@ -28,6 +28,11 @@ type HelloMsg struct {
 	Iter    int
 }
 
+type ChannelPair struct {
+	Rx 	chan UDPmessage
+	Tx 	chan UDPmessage
+}
+
 type Ip string
 
 type PeerStatus peers.PeerUpdate
@@ -42,13 +47,10 @@ type UDPmessage struct {
 var id string
 
 func UDPinit(	receivedId string,
-				stateRxChan,
-				stateTxChan chan UDPmessage,
-				orderRxChan chan UDPmessage,
-				orderTxChan chan UDPmessage,
 				peerUpdateChan chan peers.PeerUpdate,
-				orderDoneRxChan chan UDPmessage,
-				orderDoneTxChan chan UDPmessage) {
+				orderChannels,
+				orderDoneChannels,
+				stateChannels ChannelPair) {
 
 	id = receivedId
 	if id == "" {
@@ -65,12 +67,12 @@ func UDPinit(	receivedId string,
 	go peers.Transmitter(peerPort, id, peerTxEnable)
 	go peers.Receiver(peerPort, peerUpdateChan)
 
-	go bcast.Receiver(orderPort, orderRxChan)
-	go bcast.Receiver(statePort, stateRxChan)
-	go bcast.Receiver(orderDonePort, orderDoneRxChan)
-	go bcast.Transmitter(orderPort, orderTxChan)
-	go bcast.Transmitter(statePort, stateTxChan)
-	go bcast.Transmitter(orderDonePort, orderDoneTxChan)
+	go bcast.Receiver(orderPort, orderChannels.Rx)
+	go bcast.Receiver(orderDonePort, orderDoneChannels.Rx)
+	go bcast.Receiver(statePort, stateChannels.Rx)
+	go bcast.Transmitter(orderDonePort, orderDoneChannels.Tx)
+	go bcast.Transmitter(orderPort, orderChannels.Tx)
+	go bcast.Transmitter(statePort, stateChannels.Tx)
 
 }
 
