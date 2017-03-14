@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	peerPort  = 32151
-	bcastPort = 32152
-	statePort = 32153
-	orderPort = 32154
+	peerPort  		= 32155
+	orderPort 		= 32152
+	statePort 		= 32153
+	orderDonePort 	= 32154
 )
 
 const (
@@ -41,15 +41,14 @@ type UDPmessage struct {
 
 var id string
 
-func UDPinit(receivedId string,
-	stateRxChannel,
-	stateTxChannel chan UDPmessage,
-	orderRxChannel chan UDPmessage,
-	rxChannel chan UDPmessage,
-	txChannel chan UDPmessage,
-	peerUpdateChannel chan peers.PeerUpdate,
-	orderDoneRxChannel chan UDPmessage,
-	orderDoneTxChannel chan UDPmessage) {
+func UDPinit(	receivedId string,
+				stateRxChan,
+				stateTxChan chan UDPmessage,
+				orderRxChan chan UDPmessage,
+				orderTxChan chan UDPmessage,
+				peerUpdateChan chan peers.PeerUpdate,
+				orderDoneRxChan chan UDPmessage,
+				orderDoneTxChan chan UDPmessage) {
 
 	id = receivedId
 	if id == "" {
@@ -62,20 +61,21 @@ func UDPinit(receivedId string,
 	}
 
 	peerTxEnable := make(chan bool)
-	go peers.Transmitter(peerPort, id, peerTxEnable)
-	go peers.Receiver(peerPort, peerUpdateChannel)
 
-	go bcast.Transmitter(bcastPort, txChannel)
-	go bcast.Transmitter(statePort, stateTxChannel)
-	go bcast.Transmitter(orderPort, orderDoneTxChannel)
-	go bcast.Receiver(bcastPort, rxChannel)
-	go bcast.Receiver(statePort, stateRxChannel)
-	go bcast.Receiver(orderPort, orderDoneRxChannel)
+	go peers.Transmitter(peerPort, id, peerTxEnable)
+	go peers.Receiver(peerPort, peerUpdateChan)
+
+	go bcast.Receiver(orderPort, orderRxChan)
+	go bcast.Receiver(statePort, stateRxChan)
+	go bcast.Receiver(orderDonePort, orderDoneRxChan)
+	go bcast.Transmitter(orderPort, orderTxChan)
+	go bcast.Transmitter(statePort, stateTxChan)
+	go bcast.Transmitter(orderDonePort, orderDoneTxChan)
 
 }
 
-func GetLocalId() Ip {
-	return Ip(id)
+func GetLocalId() string {
+	return id
 }
 
 func IsConnected() bool {

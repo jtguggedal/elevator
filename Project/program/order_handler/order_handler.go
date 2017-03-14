@@ -3,7 +3,6 @@ package order_handler
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"time"
 
 	"./../driver"
@@ -11,6 +10,8 @@ import (
 	"./../fsm"
 	"./../network"
 	"./../network/peers"
+	cost "./../order_cost"
+	. "./../order_common"
 )
 
 const (
@@ -19,53 +20,23 @@ const (
 	directionNone = 3
 )
 
-const (
-	orderInternal = 1
-	orderExternal = 2
-)
-
-const (
-	costIdle             = 2
-	costMovingSameDir    = 1
-	costMovingOpositeDir = 10
-	costPerFloor         = 3
-	costPerOrderDepth    = 10
-	costStuck			 = 10000
-)
-
-const orderResendInterval = 1000 * time.Millisecond
-
-type orderDirection int
-type orderType int
-
-type Order struct {
-	Id         int
-	Type       orderType
-	Origin     network.Ip
-	Floor      int
-	Direction  orderDirection
-	AssignedTo network.Ip
-	Done       bool
-}
-
-type orderList []Order
-
-var localId network.Ip
+var localId string
 var localElevatorData fsm.ElevatorData_t
 
-func Init(orderRx <-chan network.UDPmessage,
-	orderTx chan<- network.UDPmessage,
-	orderDoneRxChannel <-chan network.UDPmessage,
-	orderDoneTxChannel chan<- network.UDPmessage,
-	buttonEventChannel <-chan driver.ButtonEvent,
-	targetFloorChannel chan<- int,
-	floorCompletedChannel <-chan int,
-	stateRxChannel <-chan network.UDPmessage,
-	peerUpdateChannel <-chan peers.PeerUpdate,
-	resendStateChannel chan<- bool) {
+// The main function in the order handler module and the only one available externally
+func Init(	orderRxChan <-chan network.UDPmessage,
+			orderTxChan chan<- network.UDPmessage,
+			orderDoneRxChan <-chan network.UDPmessage,
+			orderDoneTxChan chan<- network.UDPmessage,
+			buttonEventChan <-chan driver.ButtonEvent,
+			targetFloorChan chan<- int,
+			floorCompletedChan <-chan int,
+			stateRxChan <-chan network.UDPmessage,
+			peerUpdateChan <-chan peers.PeerUpdate,
+			resendStateChan chan<- bool) {
 
-	var externalOrders orderList
-	var internalOrders orderList
+	var externalOrders OrderList
+	var internalOrders OrderList
 	completedOrders := make(map[int]Order)
 	var allElevatorStates []fsm.ElevatorData_t
 	var singleElevator bool = true
@@ -74,17 +45,17 @@ func Init(orderRx <-chan network.UDPmessage,
 	activeOrder.Floor = -1
 	heading := directionNone
 
-
-	distributeOrderChannel := make(chan Order)
+	distributeOrderChan := make(chan Order)
 
 	localId = network.GetLocalId()
 	localElevatorData = fsm.GetElevatorData()
+	localElevatorData.Id = localId
 
-	go buttonEventListener(buttonEventChannel,
-		distributeOrderChannel)
+	// Event listener to register new button events and translate to order
+	go newOrderListener(buttonEventChan,
+		distributeOrderChan)
 
-
-	// Import remaining queue from backup file
+	// Import possibly remaining queue from backup file
 	backup.ReadFromFile(&internalOrders)
 	if len(internalOrders) > 0 {
 		fmt.Println("Imported orders from backup:", internalOrders)
@@ -93,81 +64,84 @@ func Init(orderRx <-chan network.UDPmessage,
 				driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 1)
 			}
 		}
-		activeOrder = getNextOrder(internalOrders, heading)
+		activeOrder, _ = cost.GetNextOrder(internalOrders, localId)
 		heading = getHeading(activeOrder)
-		targetFloorChannel <- activeOrder.Floor
+		targetFloorChan <- activeOrder.Floor
 	}
 
-	// Goroutine that continuosly resends external orders until they are done
-	/*go func() {
+	// Goroutine to keep track of all elevator states for use in cost calculation
+	go func() {
 		for {
-			if len(externalOrders) > 0 {
-				for _, order := range externalOrders {
-					if order.Origin == localId && order.Done != true {
-						orderJson, _ := json.Marshal(order)
-						orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+			select {
+			case stateJson := <-stateRxChan:
+				var state fsm.ElevatorData_t
+				JsonToStruct(stateJson.Data, &state)
+				allElevatorStates = fsm.UpdatePeerState(allElevatorStates, state)
+
+			case peers := <-peerUpdateChan:
+				var newPeerFlag, lostPeerFlag bool
+				allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag = updateLivePeers(peers, allElevatorStates)
+				if newPeerFlag {
+					resendStateChan <- true
+				}
+				if newPeerFlag || lostPeerFlag {
+					externalOrders = reassignOrders(externalOrders, allElevatorStates)
+					candidateOrder, _ := cost.GetNextOrder(externalOrders, localId)
+					if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
+						activeOrder = candidateOrder
+						heading = getHeading(activeOrder)
+						handlingOrder = true
+						targetFloorChan <- activeOrder.Floor
 					}
 				}
 			}
-			time.Sleep(orderResendInterval)
 		}
-	}()*/
+	}()
 
-	/*go func() {
-		for {
-			select {
-			case <- elevatorStateTimer:
-				e := fms.GetElevatorData()
-				if e.State == fsm.Stuck {
-
-				}
-
-			}
-		}
-	}()*/
-
+	// Main loop for order handling
 	for {
 		select {
-		case msg := <-orderRx:
+		case msg := <-orderRxChan:
 
-			// Order received via UDP
+			// Order received as JSON via UDP and stored to local queue
 			var receivedOrder Order
 			err := json.Unmarshal(msg.Data, &receivedOrder)
 			if err == nil {
-				if !orderExists(externalOrders, receivedOrder) {
+				if !OrderExists(externalOrders, receivedOrder) && receivedOrder.Done != true {
 					driver.SetButtonLamp(driver.ButtonType(receivedOrder.Direction), receivedOrder.Floor, 1)
+
+					// Calculating the received order cost for all connected elevators and assigning accordingly
 					receivedOrder.AssignedTo = assignOrder(allElevatorStates, receivedOrder)
-					externalOrders = addOrder(externalOrders, receivedOrder)
-					fmt.Println("External orders updated:", externalOrders)
-					fmt.Printf("Order assigned to %s:\tFloor: %d\n", receivedOrder.AssignedTo, receivedOrder.Floor)
-					if receivedOrder.AssignedTo == localId {
-						if !handlingOrder {
-							activeOrder = getNextOrder(externalOrders, heading)
-							handlingOrder = true
-							heading = getHeading(activeOrder)
-							targetFloorChannel <- activeOrder.Floor
-						}
+					externalOrders = AddOrder(externalOrders, receivedOrder)
+					fmt.Println("ASSIGNED TO:", receivedOrder.AssignedTo)
+
+					// Execute order immediately if it is assigned to this elevator
+					if receivedOrder.AssignedTo == localId && !handlingOrder {
+						activeOrder, handlingOrder = cost.GetNextOrder(externalOrders, localId)
+						heading = getHeading(activeOrder)
+						targetFloorChan <- activeOrder.Floor
 					}
 				} else {
-					//fmt.Println("External order already exists", receivedOrder)
+					fmt.Println("External order already exists", receivedOrder)
 				}
 			} else {
 				fmt.Println("External order message wrongly formatted:", err)
 			}
 
-		case order := <-distributeOrderChannel:
+		case order := <-distributeOrderChan:
 			switch order.Type {
+			case OrderInternal:
+				if !OrderExists(internalOrders, order) {
 
-			case orderInternal:
-				if !orderExists(internalOrders, order) {
+					// 	Only internal orders for the same direction as the hall call indicated is taken
 					if int(activeOrder.Direction) == getHeading(order) || activeOrder.Floor == -1 {
-						internalOrders = addOrder(internalOrders, order)
-						backup.SaveToFile(internalOrders)
-						fmt.Println(isOrderOnTheWay(order, activeOrder))
-						if activeOrder.Floor == -1 || isOrderOnTheWay(order, activeOrder) {
+						internalOrders = AddOrder(internalOrders, order)
+
+						// Sets received order floor as target only if it is on the way to current target or if idle
+						if localElevatorData.State == fsm.Idle || cost.TakeOrderOnTheWay(order, activeOrder) {
 							activeOrder = order
 							heading = getHeading(activeOrder)
-							targetFloorChannel <- activeOrder.Floor
+							targetFloorChan <- activeOrder.Floor
 						}
 					} else {
 						driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 0)
@@ -176,132 +150,102 @@ func Init(orderRx <-chan network.UDPmessage,
 					fmt.Println("Internal order already exists", order)
 				}
 
-			case orderExternal:
+			case OrderExternal:
 				order.Origin = localId
 				if singleElevator {
+					fmt.Println("SINGLE")
 					order.AssignedTo = localId
-					externalOrders = addOrder(externalOrders, order)
-					if !handlingOrder || isOrderOnTheWay(order, activeOrder) {
+					externalOrders = AddOrder(externalOrders, order)
+					if !handlingOrder || cost.TakeOrderOnTheWay(order, activeOrder) {
 						handlingOrder = true
 						activeOrder = order
 						heading = getHeading(activeOrder)
-						targetFloorChannel <- activeOrder.Floor
-					} else {
-						// No action, order is queued
+						targetFloorChan <- activeOrder.Floor
 					}
 				} else {
-					orderJson, _ := json.Marshal(order)
+				}
 					go func() {
-						for i := 0; i < 20; i++{
-							orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
-							time.Sleep(50 * time.Millisecond)
+						orderJson, _ := json.Marshal(order)
+						// Repeatedly sends new order to ensure it is not lost
+						for i := 0; i < 15; i++ {
+							orderTxChan <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+							time.Sleep(200 * time.Millisecond)
 						}
 					}()
-				}
 			}
 
-		case floor := <-floorCompletedChannel:
+		case floor := <-floorCompletedChan:
+
+			// If the floor was the target floor in the active order, the order is considered completed
 			if floor == activeOrder.Floor {
 				activeOrder.Done = true
-				if activeOrder.Type == orderInternal {
-					internalOrders = orderCompleted(internalOrders, activeOrder)
-					backup.SaveToFile(internalOrders)
-				} else if activeOrder.Type == orderExternal {
-					externalOrders = orderCompleted(externalOrders, activeOrder)
-					if !singleElevator {
-						order := activeOrder
-						// Goroutine that sends "order completed" message repeatedly for redundancy
-						go func() {
-							orderJson, _ := json.Marshal(order)
-							for i := 0; i < 30; i++ {
-								orderDoneTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
-								time.Sleep(200 * time.Millisecond)
-							}
-						}()
-					}
+				if activeOrder.Type == OrderInternal {
+					internalOrders = orderCompleted(internalOrders, activeOrder, orderDoneTxChan)
+				} else if activeOrder.Type == OrderExternal {
+					externalOrders = orderCompleted(externalOrders, activeOrder, orderDoneTxChan)
 				}
+
+				// Internal orders originating from an external order are handled before next external order is considered
 				if len(internalOrders) > 0 {
 					fmt.Println("Remaining internal orders", internalOrders)
-					activeOrder = getNextOrder(internalOrders, heading)
+					activeOrder, _ = cost.GetNextOrder(internalOrders, localId)
 				} else {
 					fmt.Println("Remaining external orders", externalOrders)
-					activeOrder = getNextOrder(externalOrders, heading)
+					activeOrder, _ = cost.GetNextOrder(externalOrders, localId)
 					if activeOrder.Floor == -1 {
 						handlingOrder = false
 					}
 				}
 			}
+
+			// If a new order is scheduled, it is executed. If not, elevator waits for next incoming order.
 			if activeOrder.Floor != -1 {
-				fmt.Println("Next order", activeOrder)
+				fmt.Println("Active order:", activeOrder)
 				heading = getHeading(activeOrder)
 				handlingOrder = true
-				targetFloorChannel <- activeOrder.Floor
+				targetFloorChan <- activeOrder.Floor
 			} else {
 				handlingOrder = false
 			}
 
-		case stateJson := <-stateRxChannel:
-			var state fsm.ElevatorData_t
-			jsonToStruct(stateJson.Data, &state)
-			allElevatorStates = updatePeerState(allElevatorStates, state)
-
-		case peers := <-peerUpdateChannel:
-			var newPeerFlag, lostPeerFlag bool
-			allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag = updateLivePeers(peers, allElevatorStates)
-			if newPeerFlag {
-				resendStateChannel <- true
-			}
-			if newPeerFlag || lostPeerFlag {
-				externalOrders = reassignOrders(externalOrders, allElevatorStates)
-				candidateOrder := getNextOrder(externalOrders, heading)
-				if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
-					activeOrder = candidateOrder
-					heading = getHeading(activeOrder)
-					handlingOrder = true
-					targetFloorChannel <- activeOrder.Floor
-				} else {
-					//
-				}
-			}
-
-		case orderMsg := <-orderDoneRxChannel:
+		case orderMsg := <-orderDoneRxChan:
 			var order Order
-			jsonToStruct(orderMsg.Data, &order)
+			JsonToStruct(orderMsg.Data, &order)
 			if _, ok := completedOrders[order.Id]; !ok {
 				completedOrders[order.Id] = order
-				externalOrders = orderCompleted(externalOrders, order)
-				fmt.Println("DONE", order)
+				externalOrders = orderCompleted(externalOrders, order, orderDoneTxChan)
 			}
 		}
 	}
 }
 
-func buttonEventListener(buttonEventChannel <-chan driver.ButtonEvent,
-	distributeOrderChannel chan<- Order) {
+// Function to be run as goroutine to listen to button events and translate them to elevator orders
+func newOrderListener(buttonEventChan <-chan driver.ButtonEvent,
+	distributeOrderChan chan<- Order) {
 	for {
 		select {
-		case buttonEvent := <-buttonEventChannel:
+		case buttonEvent := <-buttonEventChan:
 			driver.SetButtonLamp(buttonEvent.Type, buttonEvent.Floor, 1)
 
 			switch buttonEvent.Type {
 			case driver.ButtonExternalUp:
 				fmt.Println("External button event: UP from floor", buttonEvent.Floor)
-				distributeOrderChannel <- Order{Id: getOrderId(),
-					Type:      orderExternal,
+				distributeOrderChan <- Order{Id: GetOrderId(),
+					Type:      OrderExternal,
 					Floor:     buttonEvent.Floor,
 					Direction: directionUp}
 
 			case driver.ButtonExternalDown:
 				fmt.Println("External button event: DOWN from floor", buttonEvent.Floor)
-				distributeOrderChannel <- Order{Id: getOrderId(),
-					Type:      orderExternal,
+				distributeOrderChan <- Order{Id: GetOrderId(),
+					Type:      OrderExternal,
 					Floor:     buttonEvent.Floor,
 					Direction: directionDown}
 
 			case driver.ButtonInternalOrder:
 				fmt.Println("Internal button event: go to floor", buttonEvent.Floor)
-				distributeOrderChannel <- Order{Id: getOrderId(),
-					Type:       orderInternal,
+				distributeOrderChan <- Order{Id: GetOrderId(),
+					Type:       OrderInternal,
 					Floor:      buttonEvent.Floor,
 					AssignedTo: localId}
 			}
@@ -309,112 +253,67 @@ func buttonEventListener(buttonEventChannel <-chan driver.ButtonEvent,
 	}
 }
 
-func orderCost(orders orderList, o Order, e fsm.ElevatorData_t) int {
-	var cost int
-	distance := o.Floor - e.Floor
 
-	idle := e.State == fsm.Idle
-	movingSameDir := (int(o.Direction) == int(e.State)) && !idle
-	movingOpositeDir := !movingSameDir && !idle
-	stuck := e.State == fsm.Stuck
+// ** Helper functions	**//
 
-	targetAbove := distance > 0
-	targetBelow := distance < 0
-	distance = int(math.Abs(float64(distance)))
 
-	if targetAbove || targetBelow {
-		cost += distance * costPerFloor
-	}
-	if stuck {
-		cost += costStuck
-	}
-	if movingSameDir {
-		cost += costMovingSameDir
-	} else if movingOpositeDir {
-		cost += costMovingOpositeDir
-	} else if idle {
-		cost += costIdle
-	}
-
-	if o.Type == orderExternal {
-		orderDepth := 0
-		for _, ord := range orders {
-			if ord.AssignedTo == e.Id {
-				orderDepth += 1
-			}
-		}
-		cost += orderDepth * costPerOrderDepth
-	}
-	fmt.Println("Order cost:", cost, o)
-	return cost
-}
-
-func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) network.Ip {
-	cost := 0
+// Function to calculate which elevator should be assigned to an order and returns ID of that elevator
+func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) string {
+	orderCost := 0
 	lowestCost := 100000
-	var assignTo network.Ip
+	var assignTo string
 	order.AssignedTo = ""
 	for _, elevator := range allElevatorStates {
-		cost = orderCost(orderList{}, order, elevator)
-		fmt.Printf("Cost for %s: %d\n", elevator.Id, cost)
-		if cost < lowestCost {
-			lowestCost = cost
+		orderCost = cost.OrderCost(OrderList{}, order, elevator)
+		fmt.Printf("Cost for %s: %d\n", elevator.Id, orderCost)
+		if orderCost < lowestCost {
+			lowestCost = orderCost
 			assignTo = elevator.Id
-		} else if cost == lowestCost && elevator.Id > assignTo {
+		} else if orderCost == lowestCost && elevator.Id > assignTo {
 			assignTo = elevator.Id
 		}
 	}
 	return assignTo
 }
 
-func reassignOrders(orders orderList, allElevatorStates []fsm.ElevatorData_t) orderList {
-	fmt.Println("Incoming for reassignmnet", orders, allElevatorStates)
+// Function that recalculates all order assignments and returns order list
+func reassignOrders(orders OrderList, allElevatorStates []fsm.ElevatorData_t) OrderList {
 	for i, order := range orders {
 		orders[i].AssignedTo = assignOrder(allElevatorStates, order)
-		fmt.Println("Reassigned to elevator", orders[i].AssignedTo)
 	}
-	fmt.Println("Orders reassigned", orders)
+	fmt.Println("Orders reassigned")
 	return orders
 }
 
+// Function that updates which elevators are currently connected to the network. Returns array of elevator states.
 func updateLivePeers(	peers peers.PeerUpdate,
 						allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
-	newPeer := len(peers.New) > 0
-	lostPeer := len(peers.Lost) > 0
+	newPeerFlag := len(peers.New) > 0
+	lostPeerFlag := len(peers.Lost) > 0
 	var singleElevator bool
+	fmt.Println("Connected peers:", peers.Peers)
 	if network.IsConnected() {
-		for i, storedPeer := range allElevatorStates {
-			for _, lostPeer := range peers.Lost {
-				if network.Ip(lostPeer) == storedPeer.Id && len(allElevatorStates) > i && network.Ip(lostPeer) != localId {
-					fmt.Println("Lost peers", peers.Lost)
-					allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+		if lostPeerFlag {
+			for i, storedPeer := range allElevatorStates {
+				for _, lostPeer := range peers.Lost {
+					if 	lostPeer == storedPeer.Id && len(allElevatorStates) > i &&
+							lostPeer != localId  && lostPeer != "" {
+						fmt.Println("Lost peer", peers.Lost)
+						allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+					}
 				}
 			}
 		}
-		fmt.Println("Connected peers:", peers.Peers, allElevatorStates)
-		singleElevator = len(peers.Peers) == 1
+		singleElevator = len(peers.Peers) == 1 && peers.Peers[0] == localId
+		fmt.Println("Status of single elevator:", singleElevator)
 	} else {
 		fmt.Println("Disconnected from network. Finishing internal queue.")
-		allElevatorStates = allElevatorStates[:0]
+		allElevatorStates = nil
 		allElevatorStates = append(allElevatorStates, localElevatorData)
 		singleElevator = true
 	}
-	return allElevatorStates, singleElevator, newPeer, lostPeer
-}
-
-func updatePeerState(allElevatorStates []fsm.ElevatorData_t,
-	state fsm.ElevatorData_t) []fsm.ElevatorData_t {
-	var stateExists bool
-	for key, data := range allElevatorStates {
-		if state.Id == data.Id {
-			stateExists = true
-			allElevatorStates[key] = state
-		}
-	}
-	if !stateExists {
-		allElevatorStates = append(allElevatorStates, state)
-	}
-	return allElevatorStates
+	fmt.Println("Alle elevator states:", allElevatorStates)
+	return allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag
 }
 
 func getHeading(order Order) int {
@@ -428,122 +327,25 @@ func getHeading(order Order) int {
 	return directionDown
 }
 
-func getNextOrder(orders orderList, heading int) Order {
-	if len(orders) == 0 {
-		return Order{Floor: -1}
-	}
-	oldestEntryTime := int(10e15)
-	var nextOrder Order
-	var internal bool
-	nextOrder.Floor = -1
-	lowestCost := 1000000
-	elevatorData := fsm.GetElevatorData()
-
-	// Serving internal orders first
-	for _, order := range orders {
-		if order.Type == orderInternal {
-			cost := orderCost(orders, order, elevatorData)
-			if cost < lowestCost {
-				lowestCost = cost
-				nextOrder = order
-				internal = true
-			}
-		}
-	}
-	if internal {
-		return nextOrder
-	}
-
-	for _, order := range orders {
-		if order.Id < oldestEntryTime && order.AssignedTo == localId {
-			oldestEntryTime = order.Id
-			nextOrder = order
-		}
-	}
-	for _, order := range orders {
-		if isOrderOnTheWay(order, nextOrder) && order.AssignedTo == localId {
-			nextOrder = order
-		}
-	}
-	return nextOrder
-}
-
-func isOrderOnTheWay(order, activeOrder Order) bool {
-	elevatorState := fsm.GetElevatorData()
-	if activeOrder.Direction == order.Direction {
-		if (elevatorState.Floor > order.Floor) && (order.Floor > activeOrder.Floor) {
-			return true
-		} else if elevatorState.Floor < order.Floor && order.Floor < activeOrder.Floor {
-			return true
-		}
-	}
-	return false
-}
-
-func addOrder(orders []Order, newOrder Order) []Order {
-	if !orderExists(orders, newOrder) {
-		orders = append(orders, newOrder)
-	}
-	return orders
-}
-
-func orderCompleted(orders orderList, order Order) orderList {
-	if order.Type == orderInternal {
+func orderCompleted(orders OrderList, order Order, orderDoneTxChan chan<- network.UDPmessage) OrderList {
+	if order.Type == OrderInternal {
+		orders = RemoveDoneOrders(orders, order)
+		backup.SaveToFile(orders)
 		driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 0)
-	} else {
+	} else if order.Type == OrderExternal {
 		driver.SetButtonLamp(driver.ButtonType(order.Direction), order.Floor, 0)
-	}
-	return removeDoneOrders(orders, order)
-}
+			orders = RemoveDoneOrders(orders, order)
 
-func removeDoneOrders(orders orderList, doneOrder Order) orderList {
-	for key, order := range orders {
-		if ordersEqual(order, doneOrder) && doneOrder.Done == true {
-			orders = append(orders[:key], orders[key+1:]...)
+		if order.AssignedTo == localId {
+			// Goroutine that sends "order completed" message repeatedly for redundancy
+			go func() {
+				orderJson, _ := json.Marshal(order)
+				for i := 0; i < 15; i++ {
+					orderDoneTxChan <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
+					time.Sleep(200 * time.Millisecond)
+				}
+			}()
 		}
 	}
 	return orders
-}
-
-func getOrderId() int {
-	return int(time.Now().UnixNano()/1e8 - 1488*1e7)
-}
-
-func jsonToStruct(input []byte, output interface{}) {
-	temp := output
-	err := json.Unmarshal(input, temp)
-	if err == nil {
-		output = temp
-	} else {
-		fmt.Println("Error decoding JSON:", err)
-	}
-}
-
-func orderToJson(id int, orderType orderType, floor int, direction orderDirection) []byte {
-	ret, _ := json.Marshal(Order{
-		Id:        id,
-		Type:      orderType,
-		Floor:     floor,
-		Direction: direction})
-	return ret
-}
-
-func ordersEqual(o1, o2 Order) bool {
-	if o1.Type == o2.Type &&
-		o1.Floor == o2.Floor &&
-		o1.Direction == o2.Direction {
-		return true
-	}
-	return false
-}
-
-func orderExists(orders []Order, candidateOrder Order) bool {
-	for _, order := range orders {
-		if (order.Type == candidateOrder.Type) &&
-			(order.Floor == candidateOrder.Floor) &&
-			(order.Direction == candidateOrder.Direction) {
-			return true
-		}
-	}
-	return false
 }

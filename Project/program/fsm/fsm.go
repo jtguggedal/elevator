@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"./../driver"
-	"./../network"
 )
 
 type state_t int
@@ -23,7 +22,7 @@ const timeBetweenFloors = 6 * time.Second
 const targetFloorReached = -1
 
 type ElevatorData_t struct {
-	Id    network.Ip
+	Id    string
 	State state_t
 	Floor int
 }
@@ -187,4 +186,20 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 			stateChangedChannel <- elevatorData
 		}
 	}
+}
+
+
+func UpdatePeerState(	allElevatorStates []ElevatorData_t,
+						state ElevatorData_t) []ElevatorData_t {
+	var stateExists bool
+	for key, data := range allElevatorStates {
+		if state.Id == data.Id {
+			stateExists = true
+			allElevatorStates[key] = state
+		}
+	}
+	if !stateExists && state.Id != "" {
+		allElevatorStates = append(allElevatorStates, state)
+	}
+	return allElevatorStates
 }

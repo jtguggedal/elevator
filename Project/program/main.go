@@ -20,32 +20,29 @@ func main() {
 	flag.Parse()
 	fmt.Println("Starting...")
 
-	UDPrxChannel := make(chan network.UDPmessage)
-	UDPtxChannel := make(chan network.UDPmessage)
-	stateRxChannel := make(chan network.UDPmessage)
-	stateTxChannel := make(chan network.UDPmessage)
-	orderRxChannel := make(chan network.UDPmessage)
-	orderTxChannel := make(chan network.UDPmessage)
-	orderDoneRxChannel := make(chan network.UDPmessage)
-	orderDoneTxChannel := make(chan network.UDPmessage)
-	buttonEventChannel := make(chan driver.ButtonEvent)
-	resendStateChannel := make(chan bool)
+	stateRxChan := make(chan network.UDPmessage)
+	stateTxChan := make(chan network.UDPmessage)
+	orderRxChan := make(chan network.UDPmessage)
+	orderTxChan := make(chan network.UDPmessage)
+	orderDoneRxChan := make(chan network.UDPmessage)
+	orderDoneTxChan := make(chan network.UDPmessage)
+	buttonEventChan := make(chan driver.ButtonEvent)
+	resendStateChan := make(chan bool)
 
-	floorReachedChannel := make(chan int)
-	targetFloorChannel := make(chan int)
-	floorCompletedChannel := make(chan int)
-	distributeStateChannel := make(chan fsm.ElevatorData_t)
-	peerUpdateChannel := make(chan peers.PeerUpdate)
+	floorReachedChan := make(chan int)
+	targetFloorChan := make(chan int)
+	floorCompletedChan := make(chan int)
+	distributeStateChan := make(chan fsm.ElevatorData_t)
+	peerUpdateChan := make(chan peers.PeerUpdate)
 
 	go network.UDPinit(	localId,
-						stateRxChannel,
-						stateTxChannel,
-						orderRxChannel,
-						UDPrxChannel,
-						UDPtxChannel,
-						peerUpdateChannel,
-						orderDoneRxChannel,
-						orderDoneTxChannel)
+						stateRxChan,
+						stateTxChan,
+						orderRxChan,
+						orderTxChan,
+						peerUpdateChan,
+						orderDoneRxChan,
+						orderDoneTxChan)
 
 	fmt.Println("ID:", localId)
 
@@ -53,42 +50,37 @@ func main() {
 
 	driver.ElevatorDriverInit(	*simulator,
 								*simulatorPort,
-								buttonEventChannel,
-								floorReachedChannel)
+								buttonEventChan,
+								floorReachedChan)
 
-	go order_handler.Init(	orderRxChannel,
-							orderTxChannel,
-							orderDoneRxChannel,
-							orderDoneTxChannel,
-							buttonEventChannel,
-							targetFloorChannel,
-							floorCompletedChannel,
-							stateRxChannel,
-							peerUpdateChannel,
-							resendStateChannel)
+	go order_handler.Init(	orderRxChan,
+							orderTxChan,
+							orderDoneRxChan,
+							orderDoneTxChan,
+							buttonEventChan,
+							targetFloorChan,
+							floorCompletedChan,
+							stateRxChan,
+							peerUpdateChan,
+							resendStateChan)
 
-	go fsm.Init(floorReachedChannel,
-				targetFloorChannel,
-				floorCompletedChannel,
-				distributeStateChannel,
-				resendStateChannel)
+	go fsm.Init(floorReachedChan,
+				targetFloorChan,
+				floorCompletedChan,
+				distributeStateChan,
+				resendStateChan)
 
 
 	for {
 		select {
-		case msg := <-orderTxChannel:
-			UDPtxChannel <- msg
-		case msg := <-UDPrxChannel:
-			switch msg.Type {
-			case network.MsgState:
-			case network.MsgNewOrder:
-				orderRxChannel <- msg
-			}
-		case elevatorData := <- distributeStateChannel:
-			elevatorData.Id = network.Ip(localId)
+		case elevatorData := <- distributeStateChan:
+			elevatorData.Id = localId
 			data, _ := json.Marshal(elevatorData)
 			msg := network.UDPmessage{Type: network.MsgState, Data: data}
-			stateTxChannel <- msg
+			for i:= 0; i < 10; i++ {
+				stateTxChan <- msg
+				time.Sleep(100 * time.Millisecond)
+			}
 		}
 
 	}
