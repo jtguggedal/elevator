@@ -98,7 +98,9 @@ func SetMotorDirection(direction MotorDirection) {
 }
 
 func SetButtonLamp(button ButtonType, floor, value int) {
-	C.elev_set_button_lamp(C.elev_button_type_t(button), C.int(floor), C.int(value))
+	if floor >= 0 && floor < NUMBER_OF_FLOORS {
+		C.elev_set_button_lamp(C.elev_button_type_t(button), C.int(floor), C.int(value))
+	}
 }
 
 func SetFloorIndicator(floor int) {

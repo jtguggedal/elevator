@@ -30,9 +30,10 @@ const (
 	costMovingOpositeDir = 10
 	costPerFloor         = 3
 	costPerOrderDepth    = 10
+	costStuck			 = 10000
 )
 
-const orderResendInterval = 300 * time.Millisecond
+const orderResendInterval = 1000 * time.Millisecond
 
 type orderDirection int
 type orderType int
@@ -65,6 +66,7 @@ func Init(orderRx <-chan network.UDPmessage,
 
 	var externalOrders orderList
 	var internalOrders orderList
+	completedOrders := make(map[int]Order)
 	var allElevatorStates []fsm.ElevatorData_t
 	var singleElevator bool = true
 	handlingOrder := false
@@ -87,7 +89,9 @@ func Init(orderRx <-chan network.UDPmessage,
 	if len(internalOrders) > 0 {
 		fmt.Println("Imported orders from backup:", internalOrders)
 		for _, order := range internalOrders {
-			driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 1)
+			if order.Floor >= 0 {
+				driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 1)
+			}
 		}
 		activeOrder = getNextOrder(internalOrders, heading)
 		heading = getHeading(activeOrder)
@@ -95,7 +99,7 @@ func Init(orderRx <-chan network.UDPmessage,
 	}
 
 	// Goroutine that continuosly resends external orders until they are done
-	go func() {
+	/*go func() {
 		for {
 			if len(externalOrders) > 0 {
 				for _, order := range externalOrders {
@@ -107,7 +111,20 @@ func Init(orderRx <-chan network.UDPmessage,
 			}
 			time.Sleep(orderResendInterval)
 		}
-	}()
+	}()*/
+
+	/*go func() {
+		for {
+			select {
+			case <- elevatorStateTimer:
+				e := fms.GetElevatorData()
+				if e.State == fsm.Stuck {
+
+				}
+
+			}
+		}
+	}()*/
 
 	for {
 		select {
@@ -132,7 +149,7 @@ func Init(orderRx <-chan network.UDPmessage,
 						}
 					}
 				} else {
-					fmt.Println("External order already exists", receivedOrder)
+					//fmt.Println("External order already exists", receivedOrder)
 				}
 			} else {
 				fmt.Println("External order message wrongly formatted:", err)
@@ -174,7 +191,12 @@ func Init(orderRx <-chan network.UDPmessage,
 					}
 				} else {
 					orderJson, _ := json.Marshal(order)
-					orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+					go func() {
+						for i := 0; i < 20; i++{
+							orderTx <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
+							time.Sleep(50 * time.Millisecond)
+						}
+					}()
 				}
 			}
 
@@ -186,10 +208,17 @@ func Init(orderRx <-chan network.UDPmessage,
 					backup.SaveToFile(internalOrders)
 				} else if activeOrder.Type == orderExternal {
 					externalOrders = orderCompleted(externalOrders, activeOrder)
-				}
-				if !singleElevator {
-					orderJson, _ := json.Marshal(activeOrder)
-					orderDoneTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
+					if !singleElevator {
+						order := activeOrder
+						// Goroutine that sends "order completed" message repeatedly for redundancy
+						go func() {
+							orderJson, _ := json.Marshal(order)
+							for i := 0; i < 30; i++ {
+								orderDoneTxChannel <- network.UDPmessage{Type: network.MsgFinishedOrder, Data: orderJson}
+								time.Sleep(200 * time.Millisecond)
+							}
+						}()
+					}
 				}
 				if len(internalOrders) > 0 {
 					fmt.Println("Remaining internal orders", internalOrders)
@@ -224,9 +253,7 @@ func Init(orderRx <-chan network.UDPmessage,
 			}
 			if newPeerFlag || lostPeerFlag {
 				externalOrders = reassignOrders(externalOrders, allElevatorStates)
-				fmt.Println("Reassigned, new ds:", externalOrders)
 				candidateOrder := getNextOrder(externalOrders, heading)
-				fmt.Println("Candidate order", candidateOrder)
 				if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
 					activeOrder = candidateOrder
 					heading = getHeading(activeOrder)
@@ -240,8 +267,11 @@ func Init(orderRx <-chan network.UDPmessage,
 		case orderMsg := <-orderDoneRxChannel:
 			var order Order
 			jsonToStruct(orderMsg.Data, &order)
-			externalOrders = orderCompleted(externalOrders, order)
-			fmt.Println("Remaining external orders: ", externalOrders)
+			if _, ok := completedOrders[order.Id]; !ok {
+				completedOrders[order.Id] = order
+				externalOrders = orderCompleted(externalOrders, order)
+				fmt.Println("DONE", order)
+			}
 		}
 	}
 }
@@ -286,6 +316,7 @@ func orderCost(orders orderList, o Order, e fsm.ElevatorData_t) int {
 	idle := e.State == fsm.Idle
 	movingSameDir := (int(o.Direction) == int(e.State)) && !idle
 	movingOpositeDir := !movingSameDir && !idle
+	stuck := e.State == fsm.Stuck
 
 	targetAbove := distance > 0
 	targetBelow := distance < 0
@@ -293,6 +324,9 @@ func orderCost(orders orderList, o Order, e fsm.ElevatorData_t) int {
 
 	if targetAbove || targetBelow {
 		cost += distance * costPerFloor
+	}
+	if stuck {
+		cost += costStuck
 	}
 	if movingSameDir {
 		cost += costMovingSameDir
@@ -343,17 +377,16 @@ func reassignOrders(orders orderList, allElevatorStates []fsm.ElevatorData_t) or
 	return orders
 }
 
-func updateLivePeers(peers peers.PeerUpdate,
-	allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
+func updateLivePeers(	peers peers.PeerUpdate,
+						allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
 	newPeer := len(peers.New) > 0
 	lostPeer := len(peers.Lost) > 0
 	var singleElevator bool
-	fmt.Println("Lost peers", peers.Lost)
 	if network.IsConnected() {
 		for i, storedPeer := range allElevatorStates {
 			for _, lostPeer := range peers.Lost {
-				fmt.Println("Lost peer", lostPeer)
-				if network.Ip(lostPeer) == storedPeer.Id  {
+				if network.Ip(lostPeer) == storedPeer.Id && len(allElevatorStates) > i && network.Ip(lostPeer) != localId {
+					fmt.Println("Lost peers", peers.Lost)
 					allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
 				}
 			}
@@ -362,8 +395,8 @@ func updateLivePeers(peers peers.PeerUpdate,
 		singleElevator = len(peers.Peers) == 1
 	} else {
 		fmt.Println("Disconnected from network. Finishing internal queue.")
-		allElevatorStates = allElevatorStates[:1]
-		allElevatorStates[0] = localElevatorData
+		allElevatorStates = allElevatorStates[:0]
+		allElevatorStates = append(allElevatorStates, localElevatorData)
 		singleElevator = true
 	}
 	return allElevatorStates, singleElevator, newPeer, lostPeer

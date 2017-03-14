@@ -62,7 +62,7 @@ func Init(floorSignalChannel <-chan int,
 			distributeStateChannel <- elevatorData
 		case <-resendStateChannel:
 			go func() {
-				time.Sleep(2 * time.Second)
+				time.Sleep(1 * time.Second)
 				distributeStateChannel <- elevatorData
 			}()
 
@@ -100,7 +100,7 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 			fmt.Println("Elevator timed out between floors.")
 		default:
 			// MacGyver fix to avoid using all CPU
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		switch elevatorData.State {
@@ -184,6 +184,7 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 			floorCompletedChannel <- elevatorData.Floor
 		case Stuck:
 			driver.SetMotorDirection(driver.DirectionStop)
+			stateChangedChannel <- elevatorData
 		}
 	}
 }
