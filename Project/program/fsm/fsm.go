@@ -98,8 +98,7 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 			elevatorData.State = Stuck
 			fmt.Println("Elevator timed out between floors.")
 		default:
-			// MacGyver fix to avoid using all CPU
-			time.Sleep(100 * time.Millisecond)
+			// Continue
 		}
 
 		switch elevatorData.State {

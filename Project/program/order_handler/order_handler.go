@@ -14,12 +14,6 @@ import (
 	. "./../order_common"
 )
 
-const (
-	directionUp   = driver.ButtonExternalUp
-	directionDown = driver.ButtonExternalDown
-	directionNone = 3
-)
-
 var localId string
 var localElevatorData fsm.ElevatorData_t
 
@@ -43,7 +37,7 @@ func Init(	orderRxChan <-chan network.UDPmessage,
 	handlingOrder := false
 	var activeOrder Order
 	activeOrder.Floor = -1
-	heading := directionNone
+	heading := DirectionNone
 
 	distributeOrderChan := make(chan Order)
 
@@ -52,8 +46,7 @@ func Init(	orderRxChan <-chan network.UDPmessage,
 	localElevatorData.Id = localId
 
 	// Event listener to register new button events and translate to order
-	go newOrderListener(buttonEventChan,
-		distributeOrderChan)
+	go buttonEventListener(buttonEventChan,	distributeOrderChan)
 
 	// Import possibly remaining queue from backup file
 	backup.ReadFromFile(&internalOrders)
@@ -208,6 +201,7 @@ func Init(	orderRxChan <-chan network.UDPmessage,
 				handlingOrder = false
 			}
 
+		// Receiving message about completed orders from other elevators
 		case orderMsg := <-orderDoneRxChan:
 			var order Order
 			JsonToStruct(orderMsg.Data, &order)
@@ -220,7 +214,7 @@ func Init(	orderRxChan <-chan network.UDPmessage,
 }
 
 // Function to be run as goroutine to listen to button events and translate them to elevator orders
-func newOrderListener(buttonEventChan <-chan driver.ButtonEvent,
+func buttonEventListener(buttonEventChan <-chan driver.ButtonEvent,
 	distributeOrderChan chan<- Order) {
 	for {
 		select {
@@ -233,14 +227,14 @@ func newOrderListener(buttonEventChan <-chan driver.ButtonEvent,
 				distributeOrderChan <- Order{Id: GetOrderId(),
 					Type:      OrderExternal,
 					Floor:     buttonEvent.Floor,
-					Direction: directionUp}
+					Direction: DirectionUp}
 
 			case driver.ButtonExternalDown:
 				fmt.Println("External button event: DOWN from floor", buttonEvent.Floor)
 				distributeOrderChan <- Order{Id: GetOrderId(),
 					Type:      OrderExternal,
 					Floor:     buttonEvent.Floor,
-					Direction: directionDown}
+					Direction: DirectionDown}
 
 			case driver.ButtonInternalOrder:
 				fmt.Println("Internal button event: go to floor", buttonEvent.Floor)
@@ -292,6 +286,8 @@ func updateLivePeers(	peers peers.PeerUpdate,
 	lostPeerFlag := len(peers.Lost) > 0
 	var singleElevator bool
 	fmt.Println("Connected peers:", peers.Peers)
+
+	// Check if elevator is still on the network, and if so, parse received peer updates
 	if network.IsConnected() {
 		if lostPeerFlag {
 			for i, storedPeer := range allElevatorStates {
@@ -309,7 +305,7 @@ func updateLivePeers(	peers peers.PeerUpdate,
 	} else {
 		fmt.Println("Disconnected from network. Finishing internal queue.")
 		allElevatorStates = nil
-		allElevatorStates = append(allElevatorStates, localElevatorData)
+		allElevatorStates = append(allElevatorStates, fsm.GetElevatorData())
 		singleElevator = true
 	}
 	fmt.Println("Alle elevator states:", allElevatorStates)
@@ -320,11 +316,11 @@ func getHeading(order Order) int {
 	currentFloor := fsm.GetElevatorData().Floor
 	diff := currentFloor - order.Floor
 	if diff == 0 {
-		return directionNone
+		return DirectionNone
 	} else if diff < 0 {
-		return directionUp
+		return DirectionUp
 	}
-	return directionDown
+	return DirectionDown
 }
 
 func orderCompleted(orders OrderList, order Order, orderDoneTxChan chan<- network.UDPmessage) OrderList {

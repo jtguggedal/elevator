@@ -6,6 +6,14 @@ import (
 	"encoding/json"
 
 	"./../backup"
+	"./../driver"
+)
+
+
+const (
+	DirectionUp   = driver.ButtonExternalUp
+	DirectionDown = driver.ButtonExternalDown
+	DirectionNone = 3
 )
 
 const (
