@@ -33,7 +33,7 @@ const (
 	Stuck			 = 10000
 )
 
-const orderTimeout = 24 * time.Second
+const orderTimeout = 5 * time.Second
 
 type OrderDirection int
 type OrderType int
@@ -100,7 +100,8 @@ func Init(	orderChannels network.ChannelPair,
 			select{
 			case <-time.After(orderTimeout):
 				for _, order := range externalOrders {
-					if order.Id + 10000 < getOrderId() {
+					if (order.Id + 20000) < getOrderId() {
+						fmt.Println("Order check")
 						externalOrders = reassignOrders(externalOrders, allElevatorStates)
 						candidateOrder, _ := getNextOrder(externalOrders, localId)
 						if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
