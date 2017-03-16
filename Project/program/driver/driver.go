@@ -1,26 +1,32 @@
 package driver
 
 /*
-#cgo CFLAGS: -std=c11
+#cgo CFLAGS: -std=gnu11
 #cgo LDFLAGS: -lcomedi -lm
 #include "elev.h"
+#include "channels.h"
+#include "io.h"
 */
 import "C"
-import "time"
+
+//import "fmt"
+import (
+	"time"
+)
 
 type MotorDirection int
 type ButtonType int
 
 const (
-	MOTOR_DIRECTION_STOP = 0
-	MOTOR_DIRECTION_UP   = 1
-	MOTOR_DIRECTION_DOWN = -1
+	DirectionDown MotorDirection = -1
+	DirectionStop MotorDirection = 0
+	DirectionUp   MotorDirection = 1
 )
 
 const (
-	BUTTON_CALL_UP   = 0
-	BUTTON_CALL_DOWN = 1
-	BUTTON_COMMAND   = 2
+	ButtonExternalUp    = 0
+	ButtonExternalDown  = 1
+	ButtonInternalOrder = 2
 )
 
 const (
@@ -29,27 +35,62 @@ const (
 )
 
 type ButtonEvent struct {
-	Button int
+	Type   ButtonType
 	Floor  int
 	Status int
 }
 
-// Function for polling buttons. Returns struct with button type, floor and button state when button is pressed
-func ButtonPoll(ret chan ButtonEvent) {
+func ElevatorDriverInit(simulator bool,
+	simulatorPort int,
+	buttonEventChannel chan<- ButtonEvent,
+	floorEventChannel chan<- int) {
+	if simulator {
+		C.elev_init(C.ET_Simulation, C.int(simulatorPort))
+	} else {
+		C.elev_init(C.ET_Comedi, C.int(simulatorPort))
+	}
+
+	SetStopLamp(0)
+	SetDoorOpenLamp(0)
+	SetMotorDirection(DirectionDown)
+
+	for GetFloorSensorSignal() == -1 {
+		// Wait for elevator to get down to closest floor and thereby known state
+	}
+	SetMotorDirection(DirectionStop)
+	go eventListener(buttonEventChannel, floorEventChannel)
+}
+
+// Function for enabling event listener for elevator and button events
+func eventListener(
+	buttonEventChannel chan<- ButtonEvent,
+	floorEventChannel chan<- int) {
+
+	prevFloorSignal := -2
+	var currentFloorSignal int
+
 	for {
+
+		// Passing on which floor the elevator is at if it has changed
+		currentFloorSignal = GetFloorSensorSignal()
+		if currentFloorSignal != prevFloorSignal {
+			floorEventChannel <- currentFloorSignal
+			prevFloorSignal = currentFloorSignal
+		}
+		// Polling all buttons
 		for floor := 0; floor < NUMBER_OF_FLOORS; floor++ {
 			for button := 0; button < NUMBER_OF_BUTTONS; button++ {
 				if GetButtonSignal(button, floor) != 0 {
-					ret <- ButtonEvent{Floor: floor, Button: button, Status: GetButtonSignal(button, floor)}
-					time.Sleep(100 * time.Millisecond)
+					buttonEventChannel <- ButtonEvent{
+						Floor:  floor,
+						Type:   ButtonType(button),
+						Status: GetButtonSignal(button, floor)}
+					time.Sleep(500 * time.Millisecond)
 				}
+
 			}
 		}
 	}
-}
-
-func ElevatorDriverInit() {
-	C.elev_init()
 }
 
 func SetMotorDirection(direction MotorDirection) {
@@ -57,7 +98,9 @@ func SetMotorDirection(direction MotorDirection) {
 }
 
 func SetButtonLamp(button ButtonType, floor, value int) {
-	C.elev_set_button_lamp(C.elev_button_type_t(button), C.int(floor), C.int(value))
+	if floor >= 0 && floor < NUMBER_OF_FLOORS {
+		C.elev_set_button_lamp(C.elev_button_type_t(button), C.int(floor), C.int(value))
+	}
 }
 
 func SetFloorIndicator(floor int) {

@@ -2,75 +2,80 @@ package main
 
 import (
 	"./driver"
-	"fmt"
-	//"time"
+	"./fsm"
 	"./network"
-	fsm "./state_machine"
+	"./network/peers"
+	"./order_control"
+	"fmt"
+	"flag"
+	"time"
+	"encoding/json"
 )
 
 func main() {
-	fmt.Println("Starting...")
+	// Creating ID for elevator
+	var localId string
+	flag.StringVar(&localId, "id", "", "ID of this peer")
 
-	currentFloor := 0
-	nextFloor := 0
+	// Setting simulator parameters
+	simulatorPort := flag.Int("sim_port", 45657, "Port used for simulator communications")
+	simulator := flag.Bool("sim", false, "Run in simulator mode")
+	flag.Parse()
+	fmt.Println("Starting elevator...")
 
-	// Create necessary channels
-	buttonEventChannel := make(chan driver.ButtonEvent)
-	floorEventChannel := make(chan int)
+	// Initializing all channels to be used for communication. All channels are one-way.
+	buttonEventChan := make(chan driver.ButtonEvent)
+	floorReachedChan := make(chan int)
+	targetFloorChan := make(chan int)
+	floorCompletedChan := make(chan int)
+	distributeStateChan := make(chan fsm.ElevatorData_t, 100)
+	peerUpdateChan := make(chan peers.PeerUpdate, 10)
+	var orderChannels, orderDoneChannels, stateChannels  network.ChannelPair
+	orderChannels.Rx = make(chan network.UDPmessage)
+	orderChannels.Tx = make(chan network.UDPmessage)
+	orderDoneChannels.Rx = make(chan network.UDPmessage)
+	orderDoneChannels.Tx = make(chan network.UDPmessage)
+	stateChannels.Rx = make(chan network.UDPmessage)
+	stateChannels.Tx = make(chan network.UDPmessage)
 
-	// Initialize elevator driver
-	driver.ElevatorDriverInit()
 
-	// Start monitoring when elevator reaches a floor
-	fsm.FloorMonitor(floorEventChannel)
+	go network.UDPinit(	localId,
+						peerUpdateChan,
+						orderChannels,
+						orderDoneChannels,
+						stateChannels)
 
-	// Start button polling (all buttons)
-	go driver.ButtonPoll(buttonEventChannel)
+	driver.ElevatorDriverInit(	*simulator,
+								*simulatorPort,
+								buttonEventChan,
+								floorReachedChan)
 
-	go func() {
-		for {
-			select {
-			case buttonEvent := <-buttonEventChannel:
-				nextFloor = buttonEvent.Floor
-				fmt.Println("Next order: ", buttonEvent.Floor)
-				if nextFloor < currentFloor {
-					driver.SetMotorDirection(driver.MOTOR_DIRECTION_DOWN)
-				} else if nextFloor > currentFloor {
-					driver.SetMotorDirection(driver.MOTOR_DIRECTION_UP)
-				}
-			case floor := <-floorEventChannel:
-				currentFloor = floor
-				if currentFloor == nextFloor {
-					driver.SetMotorDirection(driver.MOTOR_DIRECTION_STOP)
-				}
-				fmt.Println("Floor: ", currentFloor+1)
-			}
-		}
-	}()
+	go order_control.Init(	orderChannels,
+							orderDoneChannels,
+							buttonEventChan,
+							targetFloorChan,
+							floorCompletedChan,
+							stateChannels.Rx,
+							peerUpdateChan)
 
-	network.Init()
-	go func() {
-		var prevFloor int
-		var currentFloor int
-		for {
-			currentFloor = driver.GetFloorSensorSignal()
-			if currentFloor != prevFloor && currentFloor >= 0 {
-				driver.SetFloorIndicator(driver.GetFloorSensorSignal())
-				prevFloor = currentFloor
-			}
-		}
-	}()
+	go fsm.Init(floorReachedChan,
+				targetFloorChan,
+				floorCompletedChan,
+				distributeStateChan)
 
-	go func() {
-		for {
-			if driver.GetFloorSensorSignal() >= 2 {
-				driver.SetMotorDirection(driver.MOTOR_DIRECTION_STOP)
-				return
-			}
-		}
-	}()
 
 	for {
+		// Loop taking care of broadcasting the elevator state
+		select {
+		case elevatorData := <- distributeStateChan:
+			elevatorData.Id = localId
+			data, _ := json.Marshal(elevatorData)
+			msg := network.UDPmessage{Type: network.MsgState, Data: data}
+			for i:= 0; i < 10; i++ {
+				stateChannels.Tx <- msg
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
 
 	}
 }

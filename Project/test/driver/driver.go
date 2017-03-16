@@ -1,9 +1,11 @@
 package driver
 
 /*
-#cgo CFLAGS: -std=c11
+#cgo CFLAGS: -std=gnu11
 #cgo LDFLAGS: -lcomedi -lm
 #include "elev.h"
+#include "channels.h"
+#include "io.h"
 */
 import "C"
 import "time"
