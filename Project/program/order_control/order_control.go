@@ -33,6 +33,8 @@ const (
 	Stuck			 = 10000
 )
 
+const orderTimeout = 24 * time.Second
+
 type OrderDirection int
 type OrderType int
 
@@ -93,6 +95,26 @@ func Init(	orderChannels network.ChannelPair,
 		targetFloorChan <- activeOrder.Floor
 	}
 
+	go func() {
+		for{
+			select{
+			case <-time.After(orderTimeout):
+				for _, order := range externalOrders {
+					if order.Id + 10000 < getOrderId() {
+						externalOrders = reassignOrders(externalOrders, allElevatorStates)
+						candidateOrder, _ := getNextOrder(externalOrders, localId)
+						if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
+							activeOrder = candidateOrder
+							heading = getElevatorHeading(activeOrder)
+							handlingOrder = true
+							targetFloorChan <- activeOrder.Floor
+						}
+					}
+				}
+			}
+		}
+		}()
+
 	// Main loop for order handling
 	go func() {
 		for {
@@ -116,8 +138,6 @@ func Init(	orderChannels network.ChannelPair,
 							heading = getElevatorHeading(activeOrder)
 							targetFloorChan <- activeOrder.Floor
 						}
-					} else {
-						fmt.Println("Order exists")
 					}
 				}
 
@@ -383,6 +403,7 @@ func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) string {
 	lowestCost := 100000
 	var assignTo string
 	order.AssignedTo = ""
+	fmt.Println("RECEIVED for cost calculation:", allElevatorStates)
 	for _, elevator := range allElevatorStates {
 		orderCost = getOrderCost(OrderList{}, order, elevator)
 		fmt.Printf("Cost for %s: %d\n", elevator.Id, orderCost)
@@ -435,7 +456,7 @@ func updateLivePeerList (peers peers.PeerUpdate,
 		fmt.Println("Disconneted from network")
 		allElevatorStates = nil
 		allElevatorStates = append(allElevatorStates, fsm.GetElevatorData())
-	//	fmt.Println("SINGLE, all states:", allElevatorStates)
+		fmt.Println("SINGLE, all states:", allElevatorStates)
 		singleElevator = true
 	}
 	return allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag
@@ -498,7 +519,7 @@ func removeDoneOrders(orders OrderList, doneOrder Order) OrderList {
 }
 
 func getOrderId() int {
-	return int(time.Now().UnixNano()/1e8 - 1488*1e7)
+	return int(time.Now().UnixNano()/1e6)
 }
 
 func jsonToOrder(input []byte, output interface{}) {

@@ -18,7 +18,7 @@ const (
 )
 
 const doorOpenTime = 5
-const timeBetweenFloors = 6 * time.Second
+const TimeBetweenFloors = 6 * time.Second
 const targetFloorReached = -1
 
 type ElevatorData_t struct {
@@ -74,7 +74,7 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 					targetFloorChannel <-chan int,
 					floorCompletedChannel chan<- int) {
 	var elevatorData ElevatorData_t
-	betweenFloorsTimer := time.NewTimer(timeBetweenFloors)
+	betweenFloorsTimer := time.NewTimer(TimeBetweenFloors)
 	betweenFloorsTimer.Stop()
 	elevatorData.State = Idle
 	stateChangedChannel <- elevatorData
@@ -88,23 +88,16 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 		for {
 			select {
 			case elevatorData.Floor = <-currentFloorChannel:
-				/*if !betweenFloorsTimer.Stop() {
-					<-betweenFloorsTimer.C
-				}*/
-				betweenFloorsTimer.Reset(timeBetweenFloors)
 				stateChangedChannel <- elevatorData
 				driver.SetFloorIndicator(elevatorData.Floor)
 				fmt.Println("Floor:", elevatorData.Floor)
+				betweenFloorsTimer.Reset(TimeBetweenFloors)
 
 				stateChan <- elevatorData
 			case targetFloor = <-targetFloorChannel:
 				//stateChangedChannel <- elevatorData
 				fmt.Println("New target floor:", targetFloor)
 				stateChan <- elevatorData
-			case <-betweenFloorsTimer.C:
-				// Timed out between floors -> probably stuck
-				//elevatorData.State = Stuck
-				fmt.Println("Elevator timed out between floors.")
 			}
 		}
 	}()
@@ -119,9 +112,11 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 						if elevatorData.Floor < targetFloor {
 							elevatorData.State = MovingUp
 							stateChangedChannel <- elevatorData
+							betweenFloorsTimer.Reset(TimeBetweenFloors)
 						} else if elevatorData.Floor > targetFloor {
 							elevatorData.State = MovingDown
 							stateChangedChannel <- elevatorData
+							betweenFloorsTimer.Reset(TimeBetweenFloors)
 						} else if elevatorData.Floor == targetFloor {
 							elevatorData.State = DoorOpen
 							stateChangedChannel <- elevatorData
@@ -131,7 +126,7 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 
 				case MovingUp:
 					if direction != driver.DirectionUp {
-						betweenFloorsTimer.Reset(timeBetweenFloors)
+						betweenFloorsTimer.Reset(TimeBetweenFloors)
 						driver.SetMotorDirection(driver.DirectionUp)
 						direction = driver.DirectionUp
 						fmt.Println("State: Moving up")
@@ -150,7 +145,7 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 
 				case MovingDown:
 					if direction != driver.DirectionDown {
-						betweenFloorsTimer.Reset(timeBetweenFloors)
+						betweenFloorsTimer.Reset(TimeBetweenFloors)
 						driver.SetMotorDirection(driver.DirectionDown)
 						direction = driver.DirectionDown
 						fmt.Println("State: Moving down")
@@ -196,6 +191,11 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 					driver.SetMotorDirection(driver.DirectionStop)
 					stateChangedChannel <- elevatorData
 				}
+			case <-betweenFloorsTimer.C:
+				// Timed out between floors -> probably stuck
+				elevatorData.State = Stuck
+				stateChan <- elevatorData
+				fmt.Println("Elevator timed out between floors.")
 			}
 		}
 	}()
