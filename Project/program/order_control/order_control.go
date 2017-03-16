@@ -116,6 +116,8 @@ func Init(	orderChannels network.ChannelPair,
 							heading = getElevatorHeading(activeOrder)
 							targetFloorChan <- activeOrder.Floor
 						}
+					} else {
+						fmt.Println("Order exists")
 					}
 				}
 
@@ -155,8 +157,9 @@ func Init(	orderChannels network.ChannelPair,
 						}
 					} else {
 						// If multiple elevators, the order is broadcasted to all
-						broadcastOrder(order, orderChannels.Tx)
 					}
+
+					broadcastOrder(order, orderChannels.Tx)
 				}
 
 			case floor := <-floorCompletedChan:
@@ -213,6 +216,7 @@ func Init(	orderChannels network.ChannelPair,
 				var state fsm.ElevatorData_t
 				jsonToOrder(stateJson.Data, &state)
 				allElevatorStates = fsm.UpdatePeerState(allElevatorStates, state)
+				//fmt.Println("UPDATED, all states:", allElevatorStates)
 
 			case peers := <-peerUpdateChan:
 				var newPeerFlag, lostPeerFlag bool
@@ -365,9 +369,9 @@ func broadcastOrder(order Order, orderTxChan chan<- network.UDPmessage) {
 	go func() {
 		orderJson, _ := json.Marshal(order)
 		// Repeatedly sends new order to ensure it is not lost
-		for i := 0; i < 15; i++ {
+		for i := 0; i < 20; i++ {
 			orderTxChan <- network.UDPmessage{Type: network.MsgNewOrder, Data: orderJson}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 }
@@ -411,21 +415,27 @@ func updateLivePeerList (peers peers.PeerUpdate,
 
 	// Check if elevator is still on the network, and if so, parse received peer updates
 	if network.IsConnected() {
-		if lostPeerFlag {
+		//if lostPeerFlag {
 			for i, storedPeer := range allElevatorStates {
-				for _, lostPeer := range peers.Lost {
-					if 	lostPeer == storedPeer.Id && len(allElevatorStates) > i &&
-							lostPeer != localId  && lostPeer != "" {
-						fmt.Println("Lost peer", peers.Lost)
-						allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+				found := false
+				for _, peer := range peers.Peers {
+					if 	peer == storedPeer.Id {
+						found = true
 					}
 				}
+				if !found {
+					fmt.Println("Lost peer", peers.Lost)
+					allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+					//fmt.Println("LOST, all states:", allElevatorStates)
+				}
 			}
-		}
+		//}
 		singleElevator = len(peers.Peers) == 1 && peers.Peers[0] == localId
 	} else {
+		fmt.Println("Disconneted from network")
 		allElevatorStates = nil
 		allElevatorStates = append(allElevatorStates, fsm.GetElevatorData())
+	//	fmt.Println("SINGLE, all states:", allElevatorStates)
 		singleElevator = true
 	}
 	return allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag

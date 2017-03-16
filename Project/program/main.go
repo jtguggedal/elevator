@@ -28,8 +28,8 @@ func main() {
 	floorReachedChan := make(chan int)
 	targetFloorChan := make(chan int)
 	floorCompletedChan := make(chan int)
-	distributeStateChan := make(chan fsm.ElevatorData_t)
-	peerUpdateChan := make(chan peers.PeerUpdate)
+	distributeStateChan := make(chan fsm.ElevatorData_t, 100)
+	peerUpdateChan := make(chan peers.PeerUpdate, 10)
 	var orderChannels, orderDoneChannels, stateChannels  network.ChannelPair
 	orderChannels.Rx = make(chan network.UDPmessage)
 	orderChannels.Tx = make(chan network.UDPmessage)
@@ -73,7 +73,7 @@ func main() {
 			msg := network.UDPmessage{Type: network.MsgState, Data: data}
 			for i:= 0; i < 10; i++ {
 				stateChannels.Tx <- msg
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 			}
 		}
 

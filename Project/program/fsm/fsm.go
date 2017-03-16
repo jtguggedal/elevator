@@ -41,9 +41,12 @@ func Init(floorSignalChannel <-chan int,
 	var floor int
 	var targetFloor int
 
-	currentFloorChannel := make(chan int)
-	targetFloorChannel := make(chan int)
-	stateChangedChannel := make(chan ElevatorData_t)
+	currentFloorChannel := make(chan int, 10)
+	targetFloorChannel := make(chan int, 10)
+	stateChangedChannel := make(chan ElevatorData_t, 10)
+
+
+	//resendStateTimer := time.NewTicker(500 * time.Millisecond)
 
 	// The state handler is the goroutine that holds the state machine of the elevator
 	go stateHandler(stateChangedChannel, currentFloorChannel, targetFloorChannel, floorCompletedChannel)
@@ -59,14 +62,17 @@ func Init(floorSignalChannel <-chan int,
 			targetFloorChannel <- targetFloor
 		case elevatorData = <-stateChangedChannel:
 			distributeStateChannel <- elevatorData
+			fmt.Println("SENT STATE")
+		case <- time.After(500 * time.Millisecond):
+			distributeStateChannel <- elevatorData
 		}
 	}
 }
 
-func stateHandler(stateChangedChannel chan<- ElevatorData_t,
-	currentFloorChannel,
-	targetFloorChannel <-chan int,
-	floorCompletedChannel chan<- int) {
+func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
+					currentFloorChannel,
+					targetFloorChannel <-chan int,
+					floorCompletedChannel chan<- int) {
 	var elevatorData ElevatorData_t
 	betweenFloorsTimer := time.NewTimer(timeBetweenFloors)
 	betweenFloorsTimer.Stop()
@@ -74,111 +80,125 @@ func stateHandler(stateChangedChannel chan<- ElevatorData_t,
 	stateChangedChannel <- elevatorData
 	targetFloor := targetFloorReached
 	var direction driver.MotorDirection
-	for {
-		select {
-		case elevatorData.Floor = <-currentFloorChannel:
-			/*if !betweenFloorsTimer.Stop() {
-				<-betweenFloorsTimer.C
-			}*/
-			betweenFloorsTimer.Reset(timeBetweenFloors)
-			stateChangedChannel <- elevatorData
-			driver.SetFloorIndicator(elevatorData.Floor)
-			fmt.Println("Floor:", elevatorData.Floor)
-		case targetFloor = <-targetFloorChannel:
-			stateChangedChannel <- elevatorData
-			fmt.Println("New target floor:", targetFloor)
-		case <-betweenFloorsTimer.C:
-			// Timed out between floors -> probably stuck
-			elevatorData.State = Stuck
-			fmt.Println("Elevator timed out between floors.")
-		default:
-			// Continue
-		}
 
-		switch elevatorData.State {
-		case Idle:
-			betweenFloorsTimer.Stop()
-			if targetFloor != targetFloorReached {
-				if elevatorData.Floor < targetFloor {
-					elevatorData.State = MovingUp
+
+	stateChan := make(chan ElevatorData_t, 3)
+
+	go func() {
+		for {
+			select {
+			case elevatorData.Floor = <-currentFloorChannel:
+				/*if !betweenFloorsTimer.Stop() {
+					<-betweenFloorsTimer.C
+				}*/
+				betweenFloorsTimer.Reset(timeBetweenFloors)
+				stateChangedChannel <- elevatorData
+				driver.SetFloorIndicator(elevatorData.Floor)
+				fmt.Println("Floor:", elevatorData.Floor)
+
+				stateChan <- elevatorData
+			case targetFloor = <-targetFloorChannel:
+				//stateChangedChannel <- elevatorData
+				fmt.Println("New target floor:", targetFloor)
+				stateChan <- elevatorData
+			case <-betweenFloorsTimer.C:
+				// Timed out between floors -> probably stuck
+				//elevatorData.State = Stuck
+				fmt.Println("Elevator timed out between floors.")
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case state := <-stateChan:
+				switch state.State {
+				case Idle:
+					betweenFloorsTimer.Stop()
+					if targetFloor != targetFloorReached {
+						if elevatorData.Floor < targetFloor {
+							elevatorData.State = MovingUp
+							stateChangedChannel <- elevatorData
+						} else if elevatorData.Floor > targetFloor {
+							elevatorData.State = MovingDown
+							stateChangedChannel <- elevatorData
+						} else if elevatorData.Floor == targetFloor {
+							elevatorData.State = DoorOpen
+							stateChangedChannel <- elevatorData
+						}
+						stateChan <- elevatorData
+					}
+
+				case MovingUp:
+					if direction != driver.DirectionUp {
+						betweenFloorsTimer.Reset(timeBetweenFloors)
+						driver.SetMotorDirection(driver.DirectionUp)
+						direction = driver.DirectionUp
+						fmt.Println("State: Moving up")
+						stateChan <- elevatorData
+					}
+
+					if elevatorData.Floor == targetFloor {
+						betweenFloorsTimer.Stop()
+						targetFloor = targetFloorReached
+						driver.SetMotorDirection(driver.DirectionStop)
+						direction = driver.DirectionStop
+						elevatorData.State = DoorOpen
+						stateChangedChannel <- elevatorData
+						stateChan <- elevatorData
+					}
+
+				case MovingDown:
+					if direction != driver.DirectionDown {
+						betweenFloorsTimer.Reset(timeBetweenFloors)
+						driver.SetMotorDirection(driver.DirectionDown)
+						direction = driver.DirectionDown
+						fmt.Println("State: Moving down")
+						stateChan <- elevatorData
+					}
+
+					if elevatorData.Floor == targetFloor {
+						betweenFloorsTimer.Stop()
+						targetFloor = targetFloorReached
+						driver.SetMotorDirection(driver.DirectionStop)
+						direction = driver.DirectionStop
+						elevatorData.State = DoorOpen
+						stateChangedChannel <- elevatorData
+						stateChan <- elevatorData
+					}
+
+				case DoorOpen:
+					betweenFloorsTimer.Stop()
+					targetFloor = targetFloorReached
+					driver.SetDoorOpenLamp(1)
+					fmt.Println("State: Door open")
+					time.Sleep(doorOpenTime * time.Second)
+					driver.SetDoorOpenLamp(0)
+					fmt.Println("Door closed")
+
+					if targetFloor != targetFloorReached {
+						if elevatorData.Floor < targetFloor {
+							elevatorData.State = MovingUp
+						} else if elevatorData.Floor > targetFloor {
+							elevatorData.State = MovingDown
+						} else if elevatorData.Floor == targetFloor {
+							elevatorData.State = DoorOpen
+						} else {
+							elevatorData.State = Idle
+						}
+					} else {
+						elevatorData.State = Idle
+					}
+					floorCompletedChannel <- elevatorData.Floor
 					stateChangedChannel <- elevatorData
-				} else if elevatorData.Floor > targetFloor {
-					elevatorData.State = MovingDown
-					stateChangedChannel <- elevatorData
-				} else if elevatorData.Floor == targetFloor {
-					elevatorData.State = DoorOpen
+					stateChan <- elevatorData
+				case Stuck:
+					driver.SetMotorDirection(driver.DirectionStop)
 					stateChangedChannel <- elevatorData
 				}
 			}
-
-		case MovingUp:
-			if direction != driver.DirectionUp {
-				betweenFloorsTimer.Reset(timeBetweenFloors)
-				driver.SetMotorDirection(driver.DirectionUp)
-				direction = driver.DirectionUp
-				fmt.Println("State: Moving up")
-			}
-
-			if elevatorData.Floor == targetFloor {
-				betweenFloorsTimer.Stop()
-				targetFloor = targetFloorReached
-				driver.SetMotorDirection(driver.DirectionStop)
-				direction = driver.DirectionStop
-				elevatorData.State = DoorOpen
-				stateChangedChannel <- elevatorData
-			}
-
-		case MovingDown:
-			if direction != driver.DirectionDown {
-				betweenFloorsTimer.Reset(timeBetweenFloors)
-				driver.SetMotorDirection(driver.DirectionDown)
-				direction = driver.DirectionDown
-				fmt.Println("State: Moving down")
-			}
-
-			if elevatorData.Floor == targetFloor {
-				betweenFloorsTimer.Stop()
-				targetFloor = targetFloorReached
-				driver.SetMotorDirection(driver.DirectionStop)
-				direction = driver.DirectionStop
-				elevatorData.State = DoorOpen
-				stateChangedChannel <- elevatorData
-			}
-
-		case DoorOpen:
-			betweenFloorsTimer.Stop()
-			targetFloor = targetFloorReached
-			driver.SetDoorOpenLamp(1)
-			fmt.Println("State: Door open")
-			time.Sleep(doorOpenTime * time.Second)
-			driver.SetDoorOpenLamp(0)
-			fmt.Println("Door closed")
-
-			if targetFloor != targetFloorReached {
-				if elevatorData.Floor < targetFloor {
-					elevatorData.State = MovingUp
-					stateChangedChannel <- elevatorData
-				} else if elevatorData.Floor > targetFloor {
-					elevatorData.State = MovingDown
-					stateChangedChannel <- elevatorData
-				} else if elevatorData.Floor == targetFloor {
-					elevatorData.State = DoorOpen
-					stateChangedChannel <- elevatorData
-				} else {
-					elevatorData.State = Idle
-					stateChangedChannel <- elevatorData
-				}
-			} else {
-				elevatorData.State = Idle
-				stateChangedChannel <- elevatorData
-			}
-
-			floorCompletedChannel <- elevatorData.Floor
-		case Stuck:
-			driver.SetMotorDirection(driver.DirectionStop)
-			stateChangedChannel <- elevatorData
 		}
-	}
+	}()
 }
 
 // Function to update state of other elevators
@@ -191,8 +211,9 @@ func UpdatePeerState(	allElevatorStates []ElevatorData_t,
 			allElevatorStates[key] = state
 		}
 	}
-	if !stateExists && state.Id != "" {
+	if !stateExists && len(state.Id) > 3 {
 		allElevatorStates = append(allElevatorStates, state)
+		fmt.Println("Added state for", state.Id, state)
 	}
 	return allElevatorStates
 }
