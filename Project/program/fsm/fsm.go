@@ -62,7 +62,6 @@ func Init(floorSignalChannel <-chan int,
 			targetFloorChannel <- targetFloor
 		case elevatorData = <-stateChangedChannel:
 			distributeStateChannel <- elevatorData
-			fmt.Println("SENT STATE")
 		case <- time.After(500 * time.Millisecond):
 			distributeStateChannel <- elevatorData
 		}
@@ -206,14 +205,13 @@ func UpdatePeerState(	allElevatorStates []ElevatorData_t,
 						state ElevatorData_t) []ElevatorData_t {
 	var stateExists bool
 	for key, data := range allElevatorStates {
-		if state.Id == data.Id {
+		if state.Id == data.Id && state.Id != "" {
 			stateExists = true
 			allElevatorStates[key] = state
 		}
 	}
 	if !stateExists && len(state.Id) > 3 {
 		allElevatorStates = append(allElevatorStates, state)
-		fmt.Println("Added state for", state.Id, state)
 	}
 	return allElevatorStates
 }

@@ -26,11 +26,11 @@ const (
 
 const (
 	Idle             = 2
-	MovingSameDir    = 1
-	MovingOpositeDir = 10
-	PerFloor         = 3
+	MovingSameDir    = 2
+	MovingOpositeDir = 7
+	PerFloor         = 5
 	PerOrderDepth    = 20
-	Stuck            = 10000
+	Stuck            = 1000
 )
 
 const orderTimeout = 5 * time.Second
@@ -140,15 +140,15 @@ func Init(orderChannels network.ChannelPair,
 					}
 				}
 				if newPeerFlag {
-					go func() {
+					//go func() {
 						time.Sleep(2 * time.Second)
 						for _, order := range externalOrders {
 							broadcastOrder(order, orderChannels.Tx)
-							for i := 0; i < 10; i++ {
+							for i := 0; i < 5; i++ {
 								time.Sleep(100 * time.Millisecond)
 							}
 						}
-					}()
+					//}()
 				}
 			}
 		}
@@ -168,7 +168,7 @@ func Init(orderChannels network.ChannelPair,
 						driver.SetButtonLamp(driver.ButtonType(receivedOrder.Direction), receivedOrder.Floor, 1)
 
 						// Calculating the received order cost for all connected elevators and assigning accordingly
-						receivedOrder.AssignedTo = assignOrder(allElevatorStates, receivedOrder)
+						receivedOrder.AssignedTo = assignOrder(externalOrders, allElevatorStates, receivedOrder)
 						externalOrders = addOrder(externalOrders, receivedOrder)
 
 						// Execute order immediately if it is assigned to this elevator
@@ -341,7 +341,6 @@ func getOrderCost(orders OrderList, order Order, elevatorData fsm.ElevatorData_t
 				orderDepth += 1
 			}
 		}
-		fmt.Println("ORDER DEPTH:", orderDepth)
 		orderCost += orderDepth * PerOrderDepth
 	}
 	//fmt.Println("Order cost:", orderCost, o)
@@ -413,14 +412,13 @@ func broadcastOrder(order Order, orderTxChan chan<- network.UDPmessage) {
 }
 
 // Function to calculate which elevator should be assigned to an order and returns ID of that elevator
-func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) string {
+func assignOrder(externalOrders OrderList, allElevatorStates []fsm.ElevatorData_t, order Order) string {
 	orderCost := 0
 	lowestCost := 100000
 	var assignTo string
 	order.AssignedTo = ""
-	fmt.Println("RECEIVED for cost calculation:", allElevatorStates)
 	for _, elevator := range allElevatorStates {
-		orderCost = getOrderCost(OrderList{}, order, elevator)
+		orderCost = getOrderCost(externalOrders, order, elevator)
 		fmt.Printf("Cost for %s: %d\n", elevator.Id, orderCost)
 		if orderCost < lowestCost {
 			lowestCost = orderCost
@@ -435,9 +433,8 @@ func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) string {
 // Function that recalculates all order assignments and returns order list
 func reassignOrders(orders OrderList, allElevatorStates []fsm.ElevatorData_t) OrderList {
 	for i, order := range orders {
-		orders[i].AssignedTo = assignOrder(allElevatorStates, order)
+		orders[i].AssignedTo = assignOrder(orders, allElevatorStates, order)
 	}
-	fmt.Println("Orders have been reassigned")
 	return orders
 }
 
@@ -471,7 +468,6 @@ func updateLivePeerList(peers peers.PeerUpdate,
 		fmt.Println("Disconneted from network")
 		allElevatorStates = nil
 		allElevatorStates = append(allElevatorStates, fsm.GetElevatorData())
-		fmt.Println("SINGLE, all states:", allElevatorStates)
 		singleElevator = true
 	}
 	return allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag
