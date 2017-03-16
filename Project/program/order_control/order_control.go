@@ -182,7 +182,8 @@ func Init(	orderChannels network.ChannelPair,
 							internalOrders = addOrder(internalOrders, order)
 
 							// Sets received order floor as target only if it is on the way to current target or if idle
-							if (localElevatorData.State == fsm.Idle || takeOrderOnTheWay(order, activeOrder)) && activeOrder.Type == OrderInternal && localElevatorData.State != fsm.Idle {
+							if (localElevatorData.State == fsm.Idle || takeOrderOnTheWay(order, activeOrder)) && (activeOrder.Type == OrderInternal || activeOrder.Floor == -1) {
+								handlingOrder = true
 								activeOrder = order
 								heading = getElevatorHeading(activeOrder)
 								targetFloorChan <- activeOrder.Floor
