@@ -3,11 +3,11 @@ package order_control
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 	"math"
+	"time"
 
-	"./../driver"
 	"./../backup"
+	"./../driver"
 	"./../fsm"
 	"./../network"
 	"./../network/peers"
@@ -30,7 +30,7 @@ const (
 	MovingOpositeDir = 10
 	PerFloor         = 3
 	PerOrderDepth    = 20
-	Stuck			 = 10000
+	Stuck            = 10000
 )
 
 const orderTimeout = 5 * time.Second
@@ -54,13 +54,13 @@ var localId string
 var localElevatorData fsm.ElevatorData_t
 
 // The main function in the order handler module and the only one available externally
-func Init(	orderChannels network.ChannelPair,
-			orderDoneChannels network.ChannelPair,
-			buttonEventChan <-chan driver.ButtonEvent,
-			targetFloorChan chan<- int,
-			floorCompletedChan <-chan int,
-			stateRxChan <-chan network.UDPmessage,
-			peerUpdateChan <-chan peers.PeerUpdate) {
+func Init(orderChannels network.ChannelPair,
+	orderDoneChannels network.ChannelPair,
+	buttonEventChan <-chan driver.ButtonEvent,
+	targetFloorChan chan<- int,
+	floorCompletedChan <-chan int,
+	stateRxChan <-chan network.UDPmessage,
+	peerUpdateChan <-chan peers.PeerUpdate) {
 
 	var externalOrders OrderList
 	var internalOrders OrderList
@@ -79,7 +79,7 @@ func Init(	orderChannels network.ChannelPair,
 	activeOrder.Floor = -1
 
 	// Event listener to register new button events and translate to order
-	go buttonEventListener(buttonEventChan,	distributeOrderChan)
+	go buttonEventListener(buttonEventChan, distributeOrderChan)
 
 	// Import possibly remaining queue from backup file
 	backup.ReadFromFile(&internalOrders)
@@ -96,11 +96,11 @@ func Init(	orderChannels network.ChannelPair,
 	}
 
 	go func() {
-		for{
-			select{
+		for {
+			select {
 			case <-time.After(orderTimeout):
 				for _, order := range externalOrders {
-					if (order.Id + 20000) < getOrderId() && order.Done != true {
+					if (order.Id+20000) < getOrderId() && order.Done != true {
 						fmt.Println("Order check")
 						externalOrders = reassignOrders(externalOrders, allElevatorStates)
 						candidateOrder, _ := getNextOrder(externalOrders, localId)
@@ -114,8 +114,7 @@ func Init(	orderChannels network.ChannelPair,
 				}
 			}
 		}
-		}()
-
+	}()
 
 	// Goroutine to keep track of all elevator states for use in cost calculation
 	go func() {
@@ -130,7 +129,7 @@ func Init(	orderChannels network.ChannelPair,
 			case peers := <-peerUpdateChan:
 				var newPeerFlag, lostPeerFlag bool
 				allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag = updateLivePeerList(peers, allElevatorStates)
-				if newPeerFlag || lostPeerFlag && !singleElevator{
+				if newPeerFlag || lostPeerFlag && !singleElevator {
 					externalOrders = reassignOrders(externalOrders, allElevatorStates)
 					candidateOrder, _ := getNextOrder(externalOrders, localId)
 					if (candidateOrder.Floor != -1) && (candidateOrder.AssignedTo == localId) && !handlingOrder {
@@ -139,6 +138,17 @@ func Init(	orderChannels network.ChannelPair,
 						handlingOrder = true
 						targetFloorChan <- activeOrder.Floor
 					}
+				}
+				if newPeerFlag {
+					go func() {
+						time.Sleep(2 * time.Second)
+						for _, order := range externalOrders {
+							broadcastOrder(order, orderChannels.Tx)
+							for i := 0; i < 10; i++ {
+								time.Sleep(100 * time.Millisecond)
+							}
+						}
+					}()
 				}
 			}
 		}
@@ -179,15 +189,15 @@ func Init(	orderChannels network.ChannelPair,
 
 						// 	Only internal orders for the same direction as the hall call indicated is taken
 						//if int(activeOrder.Direction) == getElevatorHeading(order) || activeOrder.Floor == -1 {
-							internalOrders = addOrder(internalOrders, order)
+						internalOrders = addOrder(internalOrders, order)
 
-							// Sets received order floor as target only if it is on the way to current target or if idle
-							if (localElevatorData.State == fsm.Idle || takeOrderOnTheWay(order, activeOrder)) && (activeOrder.Type == OrderInternal || activeOrder.Floor == -1) {
-								handlingOrder = true
-								activeOrder = order
-								heading = getElevatorHeading(activeOrder)
-								targetFloorChan <- activeOrder.Floor
-							}
+						// Sets received order floor as target only if it is on the way to current target or if idle
+						if (localElevatorData.State == fsm.Idle || takeOrderOnTheWay(order, activeOrder)) && (activeOrder.Type == OrderInternal || activeOrder.Floor == -1) {
+							handlingOrder = true
+							activeOrder = order
+							heading = getElevatorHeading(activeOrder)
+							targetFloorChan <- activeOrder.Floor
+						}
 						//} else {
 						//	driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 0)
 						//}
@@ -389,7 +399,6 @@ func takeOrderOnTheWay(order, activeOrder Order) bool {
 	return false
 }
 
-
 // ** Helper functions	**//
 
 func broadcastOrder(order Order, orderTxChan chan<- network.UDPmessage) {
@@ -402,7 +411,6 @@ func broadcastOrder(order Order, orderTxChan chan<- network.UDPmessage) {
 		}
 	}()
 }
-
 
 // Function to calculate which elevator should be assigned to an order and returns ID of that elevator
 func assignOrder(allElevatorStates []fsm.ElevatorData_t, order Order) string {
@@ -434,8 +442,8 @@ func reassignOrders(orders OrderList, allElevatorStates []fsm.ElevatorData_t) Or
 }
 
 // Function that updates which elevators are currently connected to the network. Returns array of elevator states.
-func updateLivePeerList (peers peers.PeerUpdate,
-						allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
+func updateLivePeerList(peers peers.PeerUpdate,
+	allElevatorStates []fsm.ElevatorData_t) ([]fsm.ElevatorData_t, bool, bool, bool) {
 	newPeerFlag := len(peers.New) > 0
 	lostPeerFlag := len(peers.Lost) > 0
 	var singleElevator bool
@@ -444,19 +452,19 @@ func updateLivePeerList (peers peers.PeerUpdate,
 	// Check if elevator is still on the network, and if so, parse received peer updates
 	if network.IsConnected() {
 		//if lostPeerFlag {
-			for i, storedPeer := range allElevatorStates {
-				found := false
-				for _, peer := range peers.Peers {
-					if 	peer == storedPeer.Id {
-						found = true
-					}
-				}
-				if !found {
-					fmt.Println("Lost peer", peers.Lost)
-					allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
-					//fmt.Println("LOST, all states:", allElevatorStates)
+		for i, storedPeer := range allElevatorStates {
+			found := false
+			for _, peer := range peers.Peers {
+				if peer == storedPeer.Id {
+					found = true
 				}
 			}
+			if !found {
+				fmt.Println("Lost peer", peers.Lost)
+				allElevatorStates = append(allElevatorStates[:i], allElevatorStates[i+1:]...)
+				//fmt.Println("LOST, all states:", allElevatorStates)
+			}
+		}
 		//}
 		singleElevator = len(peers.Peers) == 1 && peers.Peers[0] == localId
 	} else {
@@ -468,7 +476,6 @@ func updateLivePeerList (peers peers.PeerUpdate,
 	}
 	return allElevatorStates, singleElevator, newPeerFlag, lostPeerFlag
 }
-
 
 /** Helper functions for order control **/
 
@@ -526,7 +533,7 @@ func removeDoneOrders(orders OrderList, doneOrder Order) OrderList {
 }
 
 func getOrderId() int {
-	return int(time.Now().UnixNano()/1e6)
+	return int(time.Now().UnixNano() / 1e6)
 }
 
 func jsonToOrder(input []byte, output interface{}) {
