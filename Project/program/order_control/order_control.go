@@ -82,9 +82,9 @@ func Init(orderChannels network.ChannelPair,
 	go buttonEventListener(buttonEventChan, distributeOrderChan)
 
 	// Import possibly remaining queue from backup file
-	backup.ReadFromFile(&internalOrders)
+	backup.ReadFromFile(&internalOrders, backup.BackupInternal)
 	if len(internalOrders) > 0 {
-		fmt.Println("Imported orders from backup:", internalOrders)
+		fmt.Println("Imported internal orders from backup:", internalOrders)
 		for _, order := range internalOrders {
 			if order.Floor >= 0 {
 				driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 1)
@@ -93,6 +93,23 @@ func Init(orderChannels network.ChannelPair,
 		activeOrder, _ = getNextOrder(internalOrders, localId)
 		heading = getElevatorHeading(activeOrder)
 		targetFloorChan <- activeOrder.Floor
+		handlingOrder = true
+	}
+
+	backup.ReadFromFile(&externalOrders, backup.BackupExternal)
+	if len(externalOrders) > 0 {
+		fmt.Println("Imported external orders from backup:", externalOrders)
+		for _, order := range externalOrders {
+			if order.Floor >= 0 {
+				driver.SetButtonLamp(driver.ButtonType(order.Direction), order.Floor, 1)
+			}
+		}
+		if !handlingOrder {
+			handlingOrder = true
+			activeOrder, _ = getNextOrder(externalOrders, localId)
+			heading = getElevatorHeading(activeOrder)
+			targetFloorChan <- activeOrder.Floor
+		}
 	}
 
 	go func() {
@@ -124,7 +141,6 @@ func Init(orderChannels network.ChannelPair,
 				var state fsm.ElevatorData_t
 				jsonToOrder(stateJson.Data, &state)
 				allElevatorStates = fsm.UpdatePeerState(allElevatorStates, state)
-				//fmt.Println("UPDATED, all states:", allElevatorStates)
 
 			case peers := <-peerUpdateChan:
 				var newPeerFlag, lostPeerFlag bool
@@ -490,9 +506,10 @@ func getElevatorHeading(order Order) int {
 func orderCompleted(orders OrderList, order Order, orderDoneTxChan chan<- network.UDPmessage) OrderList {
 	orders = removeDoneOrders(orders, order)
 	if order.Type == OrderInternal {
-		backup.SaveToFile(orders)
+		backup.SaveToFile(orders, backup.BackupInternal)
 		driver.SetButtonLamp(driver.ButtonInternalOrder, order.Floor, 0)
 	} else if order.Type == OrderExternal {
+		backup.SaveToFile(orders, backup.BackupExternal)
 		driver.SetButtonLamp(driver.ButtonType(order.Direction), order.Floor, 0)
 		if order.AssignedTo == localId {
 
@@ -514,7 +531,9 @@ func addOrder(orders []Order, newOrder Order) []Order {
 		orders = append(orders, newOrder)
 	}
 	if newOrder.Type == OrderInternal {
-		backup.SaveToFile(orders)
+		backup.SaveToFile(orders, backup.BackupInternal)
+	} else if newOrder.Type == OrderExternal {
+		backup.SaveToFile(orders, backup.BackupExternal)
 	}
 	return orders
 }

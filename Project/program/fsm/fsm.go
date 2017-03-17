@@ -91,7 +91,6 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 				driver.SetFloorIndicator(elevatorData.Floor)
 				fmt.Println("Floor:", elevatorData.Floor)
 				betweenFloorsTimer.Reset(TimeBetweenFloors)
-
 				stateChan <- elevatorData
 			case targetFloor = <-targetFloorChannel:
 				//stateChangedChannel <- elevatorData
@@ -187,12 +186,22 @@ func stateHandler(	stateChangedChannel chan<- ElevatorData_t,
 					stateChangedChannel <- elevatorData
 					stateChan <- elevatorData
 				case Stuck:
-					driver.SetMotorDirection(driver.DirectionStop)
+					//driver.SetMotorDirection(driver.DirectionStop)
+					//betweenFloorsTimer.Stop()
+					//driver.SetMotorDirection(driver.DirectionDown)
+					for driver.GetFloorSensorSignal() == -1 {
+						// Wait for elevator to get down to closest floor and thereby known state
+					}
+					//driver.SetMotorDirection(driver.DirectionStop)
+					elevatorData.State = Idle
+					stateChan <- elevatorData
 					stateChangedChannel <- elevatorData
+
 				}
 			case <-betweenFloorsTimer.C:
 				// Timed out between floors -> probably stuck
 				elevatorData.State = Stuck
+				stateChangedChannel <- elevatorData
 				stateChan <- elevatorData
 				fmt.Println("Elevator timed out between floors.")
 			}

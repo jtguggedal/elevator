@@ -6,8 +6,20 @@ import (
 	"os"
 )
 
-func SaveToFile(data interface{}) {
-	file, err := os.Create("internalOrdersBackup.json")
+const (
+	BackupInternal 	= 1
+	BackupExternal	= 2
+)
+
+type BackupType int
+
+func SaveToFile(data interface{}, t BackupType) {
+	file, err := os.Create("backup.json")
+	if t == BackupInternal {
+		file, err = os.Create("internalOrdersBackup.json")
+	} else {
+		file, err = os.Create("externalOrdersBackup.json")
+	}
 	if err != nil {
 		fmt.Println("Error when saving file:", err)
 	}
@@ -19,8 +31,13 @@ func SaveToFile(data interface{}) {
 	file.Close()
 }
 
-func ReadFromFile(data interface{}) {
-	file, err := os.Open("internalOrdersBackup.json")
+func ReadFromFile(data interface{}, t BackupType) {
+	file, err := os.Create("backup.json")
+	if t == BackupInternal {
+		file, err = os.Open("internalOrdersBackup.json")
+	} else {
+		file, err = os.Open("externalOrdersBackup.json")
+	}
 	buf := make([]byte, 1024)
 	n, err := file.Read(buf)
 	if err != nil {
